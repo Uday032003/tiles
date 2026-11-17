@@ -1,0 +1,66 @@
+:root {
+  color-scheme: dark;
+
+  /* Full Dark Obsidian & Emerald-Teal Architectural Theme */
+  --navy-950: #060a09;
+  --navy-900: #0e1614;
+  --navy-800: #182421;
+  --navy-700: #243632;
+
+  --bg-page: #0b1110;
+  --bg-surface: #131c1a;
+  --bg-muted: #1b2725;
+
+  --text-primary: #f1f5f4;
+  --text-secondary: #b4c2be;
+  --text-muted: #7e918c;
+  --text-inverse: #f1f5f4;
+
+  --primary: #14b8a6;
+  --primary-hover: #0d9488;
+  --primary-soft: rgba(20, 184, 166, 0.16);
+
+  --accent: #f59e0b;
+  --accent-soft: rgba(245, 158, 11, 0.16);
+
+  --success: #22c55e;
+  --success-soft: rgba(34, 197, 94, 0.16);
+
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.16);
+
+  --danger: #f87171;
+  --danger-soft: rgba(239, 68, 68, 0.18);
+
+  --border-color: #24312e;
+  --border-strong: #324440;
+
+  /* Semantic Variable Aliases */
+  --color-primary: var(--primary);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-border: var(--border-color);
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Radii & Shadows */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 36px rgba(0, 0, 0, 0.55);
+
+  /* Layout Dimensions */
+  --sidebar-width: 256px;
+  --topbar-height: 64px;
+  --bottom-nav-height: 64px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
