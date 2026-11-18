@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Minus, Plus } from 'lucide-react';
 import Modal from '../common/Modal.js';
-import { calculateStaircasePreview } from '../../utils/measurementCalculator.js';
 
 export default function StaircaseFormModal({
   isOpen,
@@ -17,17 +16,7 @@ export default function StaircaseFormModal({
 
   const [selectedFloorId, setSelectedFloorId] = useState('');
   const [name, setName] = useState('Main Staircase');
-  const [isUniformSteps, setIsUniformSteps] = useState(true);
-  const [treadCount, setTreadCount] = useState('10');
-  const [riserCount, setRiserCount] = useState('11');
-  const [treadWidthFt, setTreadWidthFt] = useState('3.5');
-  const [treadDepthFt, setTreadDepthFt] = useState('1');
-  const [riserHeightFt, setRiserHeightFt] = useState('0.5');
-  const [landingLengthFt, setLandingLengthFt] = useState('0');
-  const [landingWidthFt, setLandingWidthFt] = useState('0');
-  const [skirtingLengthFt, setSkirtingLengthFt] = useState('0');
-  const [stepsData, setStepsData] = useState([]);
-  const [notes, setNotes] = useState('');
+  const [stepCount, setStepCount] = useState('15');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -42,70 +31,19 @@ export default function StaircaseFormModal({
 
     if (initialData) {
       setName(initialData.name || 'Main Staircase');
-      setIsUniformSteps(initialData.isUniformSteps !== false);
-      setTreadCount(String(initialData.treadCount ?? 0));
-      setRiserCount(String(initialData.riserCount ?? 0));
-      setTreadWidthFt(String(initialData.treadWidthFt ?? 0));
-      setTreadDepthFt(String(initialData.treadDepthFt ?? 0));
-      setRiserHeightFt(String(initialData.riserHeightFt ?? 0));
-      setLandingLengthFt(String(initialData.landingLengthFt ?? 0));
-      setLandingWidthFt(String(initialData.landingWidthFt ?? 0));
-      setSkirtingLengthFt(String(initialData.skirtingLengthFt ?? 0));
-      setStepsData(initialData.stepsData || []);
-      setNotes(initialData.notes || '');
+      setStepCount(String(initialData.treadCount || initialData.stepCount || 15));
     } else {
       setName('Main Staircase');
-      setIsUniformSteps(true);
-      setTreadCount('10');
-      setRiserCount('11');
-      setTreadWidthFt('3.5');
-      setTreadDepthFt('1');
-      setRiserHeightFt('0.5');
-      setLandingLengthFt('0');
-      setLandingWidthFt('0');
-      setSkirtingLengthFt('0');
-      setStepsData([]);
-      setNotes('');
+      setStepCount('15');
     }
   }, [isOpen, initialData, activeFloorId, floors]);
 
-  const preview = useMemo(
-    () =>
-      calculateStaircasePreview({
-        isUniformSteps,
-        treadCount,
-        riserCount,
-        treadWidthFt,
-        treadDepthFt,
-        riserHeightFt,
-        landingLengthFt,
-        landingWidthFt,
-        stepsData,
-      }),
-    [
-      isUniformSteps,
-      treadCount,
-      riserCount,
-      treadWidthFt,
-      treadDepthFt,
-      riserHeightFt,
-      landingLengthFt,
-      landingWidthFt,
-      stepsData,
-    ]
-  );
+  const countNum = Math.max(0, parseInt(stepCount, 10) || 0);
+  // Standard step area: 3.5 ft width * (1.0 ft tread + 0.5 ft riser) = 5.25 sq ft per step
+  const calculatedArea = Math.round(countNum * 3.5 * 1.5 * 10) / 10;
 
-  const addStepRow = () => {
-    setStepsData((prev) => [
-      ...prev,
-      {
-        treadWidthFt: Number(treadWidthFt) || 3.5,
-        treadDepthFt: Number(treadDepthFt) || 1,
-        riserHeightFt: Number(riserHeightFt) || 0.5,
-        hasTread: true,
-        hasRiser: true,
-      },
-    ]);
+  const handleStepDelta = (delta) => {
+    setStepCount((prev) => String(Math.max(1, (parseInt(prev, 10) || 0) + delta)));
   };
 
   const handleSubmit = async (e) => {
@@ -115,29 +53,36 @@ export default function StaircaseFormModal({
       setServerError('Staircase name is required');
       return;
     }
-    if (!isUniformSteps && stepsData.length === 0) {
-      setServerError('Add at least one step for non-uniform staircase measurement');
+    if (countNum <= 0) {
+      setServerError('Please enter a valid step count (at least 1 step)');
       return;
     }
+
+    const tWidth = 3.5;
+    const tDepth = 1.0;
+    const rHeight = 0.5;
+    const totalArea = Math.round(countNum * tWidth * (tDepth + rHeight) * 100) / 100;
 
     setIsSaving(true);
     try {
       if (onSubmit) {
         await onSubmit({
+          id: initialData?.id || null,
           floorId: selectedFloorId || null,
           name: name.trim(),
-          isUniformSteps,
-          treadCount: Number(treadCount || 0),
-          riserCount: Number(riserCount || 0),
-          treadWidthFt: Number(treadWidthFt || 0),
-          treadDepthFt: Number(treadDepthFt || 0),
-          riserHeightFt: Number(riserHeightFt || 0),
-          landingLengthFt: Number(landingLengthFt || 0),
-          landingWidthFt: Number(landingWidthFt || 0),
-          skirtingLengthFt: Number(skirtingLengthFt || 0),
-          stepsData: isUniformSteps ? [] : stepsData,
-          totalAreaSqft: preview?.totalAreaSqft || 0,
-          notes: notes.trim() || null,
+          isUniformSteps: true,
+          stepCount: countNum,
+          treadCount: countNum,
+          riserCount: countNum,
+          treadWidthFt: tWidth,
+          treadDepthFt: tDepth,
+          riserHeightFt: rHeight,
+          landingLengthFt: 0,
+          landingWidthFt: 0,
+          skirtingLengthFt: 0,
+          stepsData: [],
+          totalAreaSqft: totalArea,
+          notes: null,
         });
       }
       onClose();
@@ -152,22 +97,16 @@ export default function StaircaseFormModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={isEditing ? `Edit ${initialData.name}` : 'Add Staircase Measurement'}
-      maxWidth={720}
-      footer={
-        <>
-          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSaving}>
-            Cancel
-          </button>
-          <button type="submit" form="staircase-form" className="btn btn-primary" disabled={isSaving}>
-            {isSaving ? 'Saving...' : isEditing ? 'Save Staircase' : 'Add Staircase'}
-          </button>
-        </>
-      }
+      title={isEditing ? `Edit ${initialData?.name || 'Staircase'}` : 'Add Staircase'}
+      maxWidth={440}
     >
-      {serverError && <div className="alert alert-error">{serverError}</div>}
+      {serverError && (
+        <div className="alert alert-error" style={{ marginBottom: '0.85rem' }}>
+          {serverError}
+        </div>
+      )}
 
-      <form id="staircase-form" onSubmit={handleSubmit} noValidate>
+      <form onSubmit={handleSubmit} noValidate>
         {floors && floors.length > 1 && (
           <div className="form-group" style={{ marginBottom: '0.85rem' }}>
             <label className="form-label" htmlFor="stair-floor">
@@ -188,278 +127,137 @@ export default function StaircaseFormModal({
           </div>
         )}
 
-        <div className="grid-2">
-          <div className="form-group">
-            <label className="form-label" htmlFor="stair-name">
-              Staircase Name *
-            </label>
-            <input
-              id="stair-name"
-              type="text"
-              className="form-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
+        <div className="form-group" style={{ marginBottom: '0.85rem' }}>
+          <label className="form-label" htmlFor="stair-name">
+            Staircase Name
+          </label>
+          <input
+            id="stair-name"
+            type="text"
+            className="form-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Main Staircase, Internal Stairs..."
+          />
+        </div>
 
-          <div className="form-group">
-            <span className="form-label">Step Type</span>
-            <div className="filter-pills">
-              <button
-                type="button"
-                className={`filter-pill ${isUniformSteps ? 'active' : ''}`}
-                onClick={() => setIsUniformSteps(true)}
-              >
-                Uniform Steps
-              </button>
-              <button
-                type="button"
-                className={`filter-pill ${!isUniformSteps ? 'active' : ''}`}
-                onClick={() => {
-                  setIsUniformSteps(false);
-                  if (stepsData.length === 0) addStepRow();
+        {/* Step Count Only with Stepper Buttons */}
+        <div className="form-group" style={{ marginBottom: '1rem' }}>
+          <label className="form-label" style={{ marginBottom: '0.35rem' }}>
+            Step Count (Number of Steps)
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+            <button
+              type="button"
+              onClick={() => handleStepDelta(-1)}
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(51, 65, 85, 0.75)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+              title="Decrease steps by 1"
+            >
+              <Minus size={16} />
+            </button>
+
+            <div style={{ position: 'relative', flex: 1 }}>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                value={stepCount}
+                onChange={(e) => setStepCount(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: 38,
+                  background: 'rgba(15, 23, 42, 0.95)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-sm)',
+                  textAlign: 'center',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  fontSize: '1.05rem',
+                  padding: '0 2.5rem 0 0.5rem',
+                }}
+              />
+              <span
+                style={{
+                  position: 'absolute',
+                  right: '0.65rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  fontSize: '0.74rem',
+                  color: 'var(--text-muted)',
+                  pointerEvents: 'none',
                 }}
               >
-                Step-by-Step (Non-Uniform)
-              </button>
+                steps
+              </span>
             </div>
+
+            <button
+              type="button"
+              onClick={() => handleStepDelta(1)}
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(51, 65, 85, 0.75)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+              title="Increase steps by 1"
+            >
+              <Plus size={16} />
+            </button>
           </div>
         </div>
 
-        {isUniformSteps ? (
-          <div className="card" style={{ background: 'var(--bg-page)', marginBottom: '1rem', padding: '1rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.65rem' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Tread Count</label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  className="form-input"
-                  value={treadCount}
-                  onChange={(e) => setTreadCount(e.target.value)}
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Riser Count</label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  className="form-input"
-                  value={riserCount}
-                  onChange={(e) => setRiserCount(e.target.value)}
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Width (ft)</label>
-                <input
-                  type="number"
-                  step="any"
-                  inputMode="decimal"
-                  className="form-input"
-                  value={treadWidthFt}
-                  onChange={(e) => setTreadWidthFt(e.target.value)}
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Tread Depth (ft)</label>
-                <input
-                  type="number"
-                  step="any"
-                  inputMode="decimal"
-                  className="form-input"
-                  value={treadDepthFt}
-                  onChange={(e) => setTreadDepthFt(e.target.value)}
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Riser Height (ft)</label>
-                <input
-                  type="number"
-                  step="any"
-                  inputMode="decimal"
-                  className="form-input"
-                  value={riserHeightFt}
-                  onChange={(e) => setRiserHeightFt(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="card" style={{ background: 'var(--bg-page)', marginBottom: '1rem', padding: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
-              <strong style={{ fontSize: '0.88rem' }}>Individual Steps ({stepsData.length})</strong>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={addStepRow}>
-                <Plus size={14} /> Add Step
-              </button>
-            </div>
-            {stepsData.map((step, idx) => (
-              <div
-                key={idx}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '0.5fr 1fr 1fr 1fr auto auto auto',
-                  gap: '0.4rem',
-                  alignItems: 'center',
-                  marginBottom: '0.45rem',
-                }}
-              >
-                <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>#{idx + 1}</span>
-                <input
-                  type="number"
-                  step="any"
-                  inputMode="decimal"
-                  className="form-input"
-                  style={{ minHeight: 36, fontSize: '0.84rem' }}
-                  placeholder="Width ft"
-                  value={step.treadWidthFt}
-                  onChange={(e) =>
-                    setStepsData((prev) =>
-                      prev.map((s, i) => (i === idx ? { ...s, treadWidthFt: e.target.value } : s))
-                    )
-                  }
-                />
-                <input
-                  type="number"
-                  step="any"
-                  inputMode="decimal"
-                  className="form-input"
-                  style={{ minHeight: 36, fontSize: '0.84rem' }}
-                  placeholder="Depth ft"
-                  value={step.treadDepthFt}
-                  onChange={(e) =>
-                    setStepsData((prev) =>
-                      prev.map((s, i) => (i === idx ? { ...s, treadDepthFt: e.target.value } : s))
-                    )
-                  }
-                />
-                <input
-                  type="number"
-                  step="any"
-                  inputMode="decimal"
-                  className="form-input"
-                  style={{ minHeight: 36, fontSize: '0.84rem' }}
-                  placeholder="Riser ft"
-                  value={step.riserHeightFt}
-                  onChange={(e) =>
-                    setStepsData((prev) =>
-                      prev.map((s, i) => (i === idx ? { ...s, riserHeightFt: e.target.value } : s))
-                    )
-                  }
-                />
-                <label style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={step.hasTread !== false}
-                    onChange={(e) =>
-                      setStepsData((prev) =>
-                        prev.map((s, i) => (i === idx ? { ...s, hasTread: e.target.checked } : s))
-                      )
-                    }
-                  />
-                  T
-                </label>
-                <label style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={step.hasRiser !== false}
-                    onChange={(e) =>
-                      setStepsData((prev) =>
-                        prev.map((s, i) => (i === idx ? { ...s, hasRiser: e.target.checked } : s))
-                      )
-                    }
-                  />
-                  R
-                </label>
-                <button
-                  type="button"
-                  className="icon-btn danger"
-                  disabled={stepsData.length <= 1}
-                  onClick={() => setStepsData((prev) => prev.filter((_, i) => i !== idx))}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
+        {/* Live Area Preview Banner */}
+        {countNum > 0 && (
+          <div
+            style={{
+              background: 'rgba(20, 184, 166, 0.12)',
+              border: '1px solid rgba(20, 184, 166, 0.35)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '0.6rem 0.85rem',
+              marginBottom: '1.25rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+              Calculated Area ({countNum} steps):
+            </span>
+            <span style={{ fontSize: '0.96rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
+              {calculatedArea} sq ft
+            </span>
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.65rem', marginBottom: '1rem' }}>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Landing Length (ft)</label>
-            <input
-              type="number"
-              step="any"
-              inputMode="decimal"
-              className="form-input"
-              value={landingLengthFt}
-              onChange={(e) => setLandingLengthFt(e.target.value)}
-            />
-          </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Landing Width (ft)</label>
-            <input
-              type="number"
-              step="any"
-              inputMode="decimal"
-              className="form-input"
-              value={landingWidthFt}
-              onChange={(e) => setLandingWidthFt(e.target.value)}
-            />
-          </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Skirting Length (rft)</label>
-            <input
-              type="number"
-              step="any"
-              inputMode="decimal"
-              className="form-input"
-              value={skirtingLengthFt}
-              onChange={(e) => setSkirtingLengthFt(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div
-          className="card"
-          style={{
-            background: 'var(--primary-soft)',
-            borderColor: '#bfdbfe',
-            padding: '0.85rem 1rem',
-            marginBottom: '1rem',
-          }}
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', textAlign: 'center' }}>
-            <div>
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)' }}>Tread Area</div>
-              <div style={{ fontWeight: 700 }}>{preview.treadAreaSqft} sq ft</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)' }}>Riser Area</div>
-              <div style={{ fontWeight: 700 }}>{preview.riserAreaSqft} sq ft</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)' }}>Landing</div>
-              <div style={{ fontWeight: 700 }}>{preview.landingAreaSqft} sq ft</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)' }}>Staircase Total</div>
-              <div style={{ fontWeight: 800, color: 'var(--primary)' }}>{preview.totalAreaSqft} sq ft</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Notes (Optional)</label>
-          <textarea
-            rows={2}
-            className="form-textarea"
-            placeholder="Granite nosing, bullnose, anti-skid grooves..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={isSaving || countNum <= 0}>
+            {isSaving ? 'Saving...' : isEditing ? 'Save Staircase' : 'Add Staircase'}
+          </button>
         </div>
       </form>
     </Modal>
   );
 }
-

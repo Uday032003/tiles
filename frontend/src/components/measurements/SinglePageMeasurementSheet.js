@@ -242,6 +242,8 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
   const [entryModalOpen, setEntryModalOpen] = useState(false);
   const [isSharingPdf, setIsSharingPdf] = useState(false);
   const [staircaseOpen, setStaircaseOpen] = useState(false);
+  const [editingStaircase, setEditingStaircase] = useState(null);
+  const [deletingStaircase, setDeletingStaircase] = useState(null);
   const [customFloorModalOpen, setCustomFloorModalOpen] = useState(false);
   const [newFloorName, setNewFloorName] = useState('');
 
@@ -276,8 +278,16 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     queryFn: () => buildingService.getTree(buildingId),
   });
 
+  // Dedicated Staircases Query (Staircases are stored and tracked separately from rooms)
+  const staircasesQuery = useQuery({
+    queryKey: ['building-staircases', buildingId],
+    queryFn: () => staircaseService.listByBuilding(buildingId),
+    enabled: Boolean(buildingId),
+  });
+
   const tree = treeQuery.data || { building: null, floors: [] };
   const floors = tree.floors || [];
+  const allStaircases = staircasesQuery.data || [];
 
   // Sync active floor selection
   useEffect(() => {
@@ -294,31 +304,57 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     return floors.find((f) => f.id === activeFloorId) || floors[0] || null;
   }, [floors, activeFloorId]);
 
+  // Actual rooms ONLY (excludes staircases so they are not mixed into rooms)
   const activeFloorRooms = useMemo(() => {
-    return activeFloor?.rooms || [];
+    return (activeFloor?.rooms || []).filter(
+      (r) => !r.name?.toLowerCase().includes('stair')
+    );
   }, [activeFloor]);
 
-  // Total area for active floor overview
-  const activeFloorTotalArea = useMemo(() => {
+  // Active floor staircases (kept completely separate from rooms)
+  const activeFloorStaircases = useMemo(() => {
+    return allStaircases.filter((s) => s.floorId === activeFloorId);
+  }, [allStaircases, activeFloorId]);
+
+  const activeFloorStaircaseTotalArea = useMemo(() => {
+    return activeFloorStaircases.reduce((acc, s) => {
+      const steps = s.treadCount || s.stepCount || 10;
+      return acc + Math.round(Number(s.totalAreaSqft || steps * 5.25));
+    }, 0);
+  }, [activeFloorStaircases]);
+
+  // Total area for rooms only
+  const activeFloorRoomsArea = useMemo(() => {
     return activeFloorRooms.reduce((acc, r) => {
       const { area } = getRoomDisplayData(r);
       return acc + area;
     }, 0);
   }, [activeFloorRooms]);
 
+  // Total area for active floor overview (Rooms + Staircases)
+  const activeFloorTotalArea = useMemo(() => {
+    return activeFloorRoomsArea + activeFloorStaircaseTotalArea;
+  }, [activeFloorRoomsArea, activeFloorStaircaseTotalArea]);
+
   // Total building measured area
   const totalBuildingMeasuredArea = useMemo(() => {
-    return floors.reduce(
+    const floorsArea = floors.reduce(
       (acc, f) => acc + Number(f.totalMeasuredArea || 0),
       0
     );
-  }, [floors]);
+    const stairsArea = allStaircases.reduce(
+      (acc, s) => acc + Number(s.totalAreaSqft || (s.treadCount || 10) * 5.25),
+      0
+    );
+    return Math.round(floorsArea + stairsArea);
+  }, [floors, allStaircases]);
 
   // Invalidate queries helper
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['building-tree', buildingId] });
     queryClient.invalidateQueries({ queryKey: ['building', buildingId] });
     queryClient.invalidateQueries({ queryKey: ['building-summary', buildingId] });
+    queryClient.invalidateQueries({ queryKey: ['building-staircases', buildingId] });
     queryClient.invalidateQueries({ queryKey: ['buildings'] });
   };
 
@@ -433,6 +469,16 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       showToast('Measurement removed.', 'info');
     },
     onError: (err) => showToast(err.message || 'Delete failed', 'error'),
+  });
+
+  const deleteStaircaseMutation = useMutation({
+    mutationFn: (id) => staircaseService.remove(id),
+    onSuccess: () => {
+      invalidateAll();
+      setDeletingStaircase(null);
+      showToast('Staircase deleted.', 'info');
+    },
+    onError: (err) => showToast(err.message || 'Failed to delete staircase', 'error'),
   });
 
   // Add Room Modal Helpers
@@ -668,7 +714,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     }
   };
 
-  // Handle Save Staircase Measurement
+  // Handle Save Staircase Measurement (Tracked and displayed separately from rooms)
   const handleSaveStaircase = async (payload) => {
     const floorId = payload.floorId || activeFloorId || floors[0]?.id;
     const targetFloor = floors.find((f) => f.id === floorId) || activeFloor || floors[0];
@@ -676,42 +722,27 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       throw new Error('Please add a floor level first.');
     }
 
-    let staircaseRoom = (targetFloor.rooms || []).find((r) =>
-      r.name?.toLowerCase().includes('stair')
-    );
+    if (payload.id) {
+      await staircaseService.update(payload.id, payload);
+      showToast('Staircase updated.', 'success');
+    } else {
+      let staircaseRoom = (targetFloor.rooms || []).find((r) =>
+        r.name?.toLowerCase().includes('stair')
+      );
 
-    const stairMeasPayload = {
-      name: `${payload.name || 'Main Staircase'}`,
-      surfaceRole: 'STAIRCASE',
-      workTypeCode: 'GRANITE_STAIRCASE',
-      inputMethod: 'DIMENSIONS',
-      dimensionUnit: 'DECIMAL_FEET',
-      outputUnit: 'SQ_FT',
-      lengthRaw: String(payload.treadCount || 10),
-      widthRaw: String(payload.treadWidthFt || 3.5),
-      heightRaw: null,
-      quantity: 1,
-      segments: [],
-      deductions: [],
-      netArea: Number(payload.totalAreaSqft || 0),
-    };
+      if (!staircaseRoom) {
+        staircaseRoom = await roomService.create(targetFloor.id, {
+          name: payload.name || 'Main Staircase',
+        });
+      }
 
-    if (!staircaseRoom) {
-      staircaseRoom = await roomService.create(targetFloor.id, {
-        name: payload.name || 'Main Staircase',
-        initialMeasurement: stairMeasPayload,
-      });
-    }
-
-    try {
       await staircaseService.create(staircaseRoom.id, payload);
-    } catch (scErr) {
-      console.warn('Direct staircase table save note:', scErr);
+      showToast('Staircase added successfully.', 'success');
     }
 
     invalidateAll();
     setStaircaseOpen(false);
-    showToast('Staircase measurement added successfully.', 'success');
+    setEditingStaircase(null);
   };
 
   // WhatsApp share
@@ -913,7 +944,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
               Room Dimensions Overview ({activeFloorRooms.length} Rooms):
             </div>
             <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
-              Total: {activeFloorTotalArea} sq ft
+              Total: {activeFloorRoomsArea} sq ft
             </div>
           </div>
 
@@ -951,13 +982,10 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                 const {
                   hasFloor,
                   hasWall,
-                  hasStair,
                   floorWidthFormatted,
                   floorLengthFormatted,
                   wallWidthFormatted,
                   wallLengthFormatted,
-                  stairWidthFormatted,
-                  stairLengthFormatted,
                   widthFormatted,
                   lengthFormatted,
                   totalArea,
@@ -1003,19 +1031,131 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                       </div>
                     )}
 
-                    {hasStair && !hasFloor && !hasWall && (
-                      <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                        Staircase: Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{stairWidthFormatted}</strong> • Steps:{' '}
-                        <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{stairLengthFormatted}</strong>
-                      </div>
-                    )}
-
-                    {!hasFloor && !hasWall && !hasStair && (
+                    {!hasFloor && !hasWall && (
                       <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
                         Floor: Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{widthFormatted}</strong> • Length:{' '}
                         <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{lengthFormatted}</strong>
                       </div>
                     )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3b. Dedicated Staircase Section (Tracked and Displayed Separately from Rooms) */}
+      {floors.length > 0 && activeFloor && (
+        <div
+          className="card"
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.85rem 1rem',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
+            marginTop: '0.65rem',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              marginBottom: '0.45rem',
+              flexWrap: 'wrap',
+              gap: '0.5rem',
+            }}
+          >
+            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <Ruler size={14} color="var(--primary)" /> Staircase Overview ({activeFloorStaircases.length}):
+            </div>
+            {activeFloorStaircases.length > 0 && (
+              <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
+                Total: {activeFloorStaircaseTotalArea} sq ft
+              </div>
+            )}
+          </div>
+
+          {activeFloorStaircases.length === 0 ? (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '0.55rem 0.75rem',
+                background: 'rgba(30, 41, 59, 0.35)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <span>No staircase added on {activeFloor.name} yet.</span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '0.74rem', padding: '0.25rem 0.55rem' }}
+                onClick={() => {
+                  setEditingStaircase(null);
+                  setStaircaseOpen(true);
+                }}
+              >
+                <Plus size={12} /> Add Staircase
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              {activeFloorStaircases.map((sc) => {
+                const scSteps = sc.treadCount || sc.stepCount || 15;
+                const scArea = Math.round(Number(sc.totalAreaSqft || scSteps * 5.25));
+
+                return (
+                  <div
+                    key={sc.id}
+                    onClick={() => {
+                      setEditingStaircase(sc);
+                      setStaircaseOpen(true);
+                    }}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(30, 41, 59, 0.55)',
+                      border: '1px solid rgba(255, 255, 255, 0.07)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      transition: 'all 0.15s ease',
+                    }}
+                    className="room-dimension-card"
+                  >
+                    <div>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#ffffff' }}>
+                        {sc.name}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                        Step Count: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{scSteps} steps</strong>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                      <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
+                        {scArea} sq ft
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '0.2rem 0.4rem', fontSize: '0.72rem', color: '#f87171' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeletingStaircase(sc);
+                        }}
+                        title="Delete Staircase"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -1485,28 +1625,28 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
                 {ROOM_PRESETS.map((p) => {
                   const isSelected = newRoomName.trim().toLowerCase() === p.toLowerCase();
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => handleSelectRoomPreset(p)}
-                        style={{
-                          fontSize: '0.76rem',
-                          padding: '0.3rem 0.65rem',
-                          cursor: 'pointer',
-                          borderRadius: 'var(--radius-full)',
-                          background: isSelected ? 'var(--primary)' : 'rgba(30, 41, 59, 0.65)',
-                          color: isSelected ? '#042f2e' : '#e2e8f0',
-                          border: isSelected ? '1px solid var(--primary)' : '1px solid rgba(255, 255, 255, 0.12)',
-                          fontWeight: isSelected ? 700 : 500,
-                          boxShadow: isSelected ? '0 2px 8px rgba(20, 184, 166, 0.35)' : 'none',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {p}
-                      </button>
-                    );
-                  })}
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => handleSelectRoomPreset(p)}
+                      style={{
+                        fontSize: '0.76rem',
+                        padding: '0.3rem 0.65rem',
+                        cursor: 'pointer',
+                        borderRadius: 'var(--radius-full)',
+                        background: isSelected ? 'var(--primary)' : 'rgba(30, 41, 59, 0.65)',
+                        color: isSelected ? '#042f2e' : '#e2e8f0',
+                        border: isSelected ? '1px solid var(--primary)' : '1px solid rgba(255, 255, 255, 0.12)',
+                        fontWeight: isSelected ? 700 : 500,
+                        boxShadow: isSelected ? '0 2px 8px rgba(20, 184, 166, 0.35)' : 'none',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -1817,16 +1957,17 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
         </Modal>
       )}
 
-      {/* 7. Staircase Calculator Modal */}
+      {/* 7. Staircase Modal (Step Count only) */}
       <StaircaseFormModal
         isOpen={staircaseOpen}
-        onClose={() => setStaircaseOpen(false)}
+        onClose={() => {
+          setStaircaseOpen(false);
+          setEditingStaircase(null);
+        }}
         onSubmit={handleSaveStaircase}
-        buildingId={buildingId}
+        initialData={editingStaircase}
         floors={floors}
         activeFloorId={activeFloorId}
-        workTypes={workTypes}
-        onSaved={() => invalidateAll()}
       />
 
       {/* 8. Delete Floor Confirmation */}
@@ -1851,6 +1992,18 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
         confirmLabel="Delete Room"
         confirmVariant="danger"
         isLoading={deleteRoomMutation.isPending}
+      />
+
+      {/* 10. Delete Staircase Confirmation */}
+      <ConfirmationDialog
+        isOpen={Boolean(deletingStaircase)}
+        onClose={() => setDeletingStaircase(null)}
+        onConfirm={() => deleteStaircaseMutation.mutate(deletingStaircase.id)}
+        title="Delete Staircase"
+        message={`Delete staircase "${deletingStaircase?.name}"?`}
+        confirmLabel="Delete Staircase"
+        confirmVariant="danger"
+        isLoading={deleteStaircaseMutation.isPending}
       />
     </div>
   );
