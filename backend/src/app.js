@@ -52,6 +52,8 @@ app.use(
 );
 
 app.use('/api/v1', apiRouter);
+app.use('/api', apiRouter);
+app.use('/', apiRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

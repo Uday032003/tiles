@@ -1,13 +1,25 @@
 import axios from 'axios';
 import { enqueueMutation } from '../utils/offlineQueue.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+function resolveBaseUrl(url) {
+  if (!url) return '/api/v1';
+  const clean = url.trim().replace(/\/$/, '');
+  if (clean.startsWith('/')) return clean;
+  if (!clean.endsWith('/api/v1') && !clean.endsWith('/api')) {
+    return `${clean}/api/v1`;
+  }
+  return clean;
+}
+
+const API_BASE_URL = resolveBaseUrl(rawBaseUrl);
 
 export const TOKEN_STORAGE_KEY = 'dm_tiles_token';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
   },
