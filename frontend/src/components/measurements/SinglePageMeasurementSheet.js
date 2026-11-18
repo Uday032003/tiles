@@ -349,33 +349,40 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     return Math.round(floorsArea + stairsArea);
   }, [floors, allStaircases]);
 
-  // Invalidate queries helper
-  const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ['building-tree', buildingId] });
-    queryClient.invalidateQueries({ queryKey: ['building', buildingId] });
-    queryClient.invalidateQueries({ queryKey: ['building-summary', buildingId] });
-    queryClient.invalidateQueries({ queryKey: ['building-staircases', buildingId] });
-    queryClient.invalidateQueries({ queryKey: ['buildings'] });
+  // Invalidate queries helper (awaits refetches so loading indicators stay active until UI is updated)
+  const invalidateAll = async () => {
+    return Promise.all([
+      queryClient.refetchQueries({ queryKey: ['building-tree', buildingId] }),
+      queryClient.refetchQueries({ queryKey: ['building-summary', buildingId] }),
+      queryClient.invalidateQueries({ queryKey: ['building', buildingId] }),
+      queryClient.invalidateQueries({ queryKey: ['building-staircases', buildingId] }),
+      queryClient.invalidateQueries({ queryKey: ['buildings'] }),
+    ]);
   };
 
   // Mutations
   const initLayoutMutation = useMutation({
-    mutationFn: (layout) => buildingService.initLayout(buildingId, layout),
+    mutationFn: async (layout) => {
+      const res = await buildingService.initLayout(buildingId, layout);
+      await invalidateAll();
+      return res;
+    },
     onSuccess: () => {
-      invalidateAll();
       showToast('Standard floors and rooms layout initialized.', 'success');
     },
     onError: (err) => showToast(err.message || 'Layout setup failed', 'error'),
   });
 
   const addFloorMutation = useMutation({
-    mutationFn: (name) =>
-      floorService.create(buildingId, {
+    mutationFn: async (name) => {
+      const res = await floorService.create(buildingId, {
         name,
         floorNumber: floors.length,
-      }),
+      });
+      await invalidateAll();
+      return res;
+    },
     onSuccess: (newFloor) => {
-      invalidateAll();
       if (newFloor?.id) setActiveFloorId(newFloor.id);
       setCustomFloorModalOpen(false);
       setNewFloorName('');
@@ -389,20 +396,27 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
   });
 
   const deleteFloorMutation = useMutation({
-    mutationFn: (floorId) => floorService.remove(floorId),
+    mutationFn: async (floorId) => {
+      await floorService.remove(floorId);
+      await invalidateAll();
+    },
     onSuccess: () => {
-      invalidateAll();
       setDeletingFloor(null);
       showToast('Floor removed.', 'info');
     },
     onError: (err) => showToast(err.message || 'Failed to delete floor', 'error'),
+    onSettled: () => {
+      setDeletingFloor(null);
+    },
   });
 
   const duplicateFloorMutation = useMutation({
-    mutationFn: ({ floorId, name }) =>
-      floorService.duplicate(floorId, { name, copyMeasurements: true }),
+    mutationFn: async ({ floorId, name }) => {
+      const res = await floorService.duplicate(floorId, { name, copyMeasurements: true });
+      await invalidateAll();
+      return res;
+    },
     onSuccess: (created) => {
-      invalidateAll();
       setActiveFloorId(created.id);
       showToast(`Floor duplicated as "${created.name}".`, 'success');
     },
@@ -410,9 +424,12 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
   });
 
   const addRoomMutation = useMutation({
-    mutationFn: ({ floorId, name }) => roomService.create(floorId, { name }),
+    mutationFn: async ({ floorId, name }) => {
+      const res = await roomService.create(floorId, { name });
+      await invalidateAll();
+      return res;
+    },
     onSuccess: (newRoom) => {
-      invalidateAll();
       setCustomRoomFloorId(null);
       setNewRoomName('');
       if (newRoom?.queuedOffline) {
@@ -425,14 +442,19 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
   });
 
   const deleteRoomMutation = useMutation({
-    mutationFn: (roomId) => roomService.remove(roomId),
+    mutationFn: async (roomId) => {
+      await roomService.remove(roomId);
+      await invalidateAll();
+    },
     onSuccess: () => {
-      invalidateAll();
       setSelectedRoom(null);
       setDeletingRoom(null);
       showToast('Room deleted.', 'info');
     },
     onError: (err) => showToast(err.message || 'Failed to delete room', 'error'),
+    onSettled: () => {
+      setDeletingRoom(null);
+    },
   });
 
   const addMeasurementMutation = useMutation({
@@ -472,13 +494,18 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
   });
 
   const deleteStaircaseMutation = useMutation({
-    mutationFn: (id) => staircaseService.remove(id),
+    mutationFn: async (id) => {
+      await staircaseService.remove(id);
+      await invalidateAll();
+    },
     onSuccess: () => {
-      invalidateAll();
       setDeletingStaircase(null);
       showToast('Staircase deleted.', 'info');
     },
     onError: (err) => showToast(err.message || 'Failed to delete staircase', 'error'),
+    onSettled: () => {
+      setDeletingStaircase(null);
+    },
   });
 
   // Add Room Modal Helpers
@@ -566,7 +593,8 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
         initialMeasurement,
       });
 
-      invalidateAll();
+      // Await cache refetch while isAddingRoom remains true, so the room appears immediately when the modal closes
+      await invalidateAll();
       setCustomRoomFloorId(null);
       setNewRoomName('');
       setNewRoomWidth('');
@@ -740,7 +768,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       showToast('Staircase added successfully.', 'success');
     }
 
-    invalidateAll();
+    await invalidateAll();
     setStaircaseOpen(false);
     setEditingStaircase(null);
   };
@@ -940,20 +968,23 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
               gap: '0.5rem',
             }}
           >
-            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: '#ffffff' }}>
-              Room Dimensions Overview ({activeFloorRooms.length} Rooms):
+            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              Room Dimensions Overview ({activeFloorRooms.length + activeFloorStaircases.length}):
+              {(isAddingRoom || deleteRoomMutation.isPending || treeQuery.isFetching) && (
+                <RefreshCw size={13} className="spin" color="var(--primary)" />
+              )}
             </div>
             <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
-              Total: {activeFloorRoomsArea} sq ft
+              Total: {activeFloorTotalArea} sq ft
             </div>
           </div>
 
           <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '0.75rem' }}>
-            Click any room to view or adjust width and length
+            Click any room or staircase to view or adjust dimensions
           </div>
 
-          {/* Vertical Stack of Room Cards */}
-          {activeFloorRooms.length === 0 ? (
+          {/* Vertical Stack of Room & Staircase Cards */}
+          {activeFloorRooms.length === 0 && activeFloorStaircases.length === 0 ? (
             <div
               style={{
                 textAlign: 'center',
@@ -966,18 +997,32 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                 gap: '0.5rem',
               }}
             >
-              <div>No rooms on {activeFloor.name} yet.</div>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
-                onClick={() => openAddRoomModal(activeFloor.id)}
-              >
-                <Plus size={13} /> Add Room
-              </button>
+              <div>No rooms or staircases on {activeFloor.name} yet.</div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
+                  onClick={() => openAddRoomModal(activeFloor.id)}
+                >
+                  <Plus size={13} /> Add Room
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
+                  onClick={() => {
+                    setEditingStaircase(null);
+                    setStaircaseOpen(true);
+                  }}
+                >
+                  <Plus size={13} /> Add Staircase
+                </button>
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+              {/* Rooms */}
               {activeFloorRooms.map((room) => {
                 const {
                   hasFloor,
@@ -1040,72 +1085,8 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                   </div>
                 );
               })}
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* 3b. Dedicated Staircase Section (Tracked and Displayed Separately from Rooms) */}
-      {floors.length > 0 && activeFloor && (
-        <div
-          className="card"
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md)',
-            padding: '0.85rem 1rem',
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
-            marginTop: '0.65rem',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
-              marginBottom: '0.45rem',
-              flexWrap: 'wrap',
-              gap: '0.5rem',
-            }}
-          >
-            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-              <Ruler size={14} color="var(--primary)" /> Staircase Overview ({activeFloorStaircases.length}):
-            </div>
-            {activeFloorStaircases.length > 0 && (
-              <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
-                Total: {activeFloorStaircaseTotalArea} sq ft
-              </div>
-            )}
-          </div>
-
-          {activeFloorStaircases.length === 0 ? (
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '0.55rem 0.75rem',
-                background: 'rgba(30, 41, 59, 0.35)',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.8rem',
-                color: 'var(--text-muted)',
-              }}
-            >
-              <span>No staircase added on {activeFloor.name} yet.</span>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                style={{ fontSize: '0.74rem', padding: '0.25rem 0.55rem' }}
-                onClick={() => {
-                  setEditingStaircase(null);
-                  setStaircaseOpen(true);
-                }}
-              >
-                <Plus size={12} /> Add Staircase
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              {/* Staircases directly within the overview list: {Staircase (count)} */}
               {activeFloorStaircases.map((sc) => {
                 const scSteps = sc.treadCount || sc.stepCount || 15;
                 const scArea = Math.round(Number(sc.totalAreaSqft || scSteps * 5.25));
@@ -1124,37 +1105,22 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                       background: 'rgba(30, 41, 59, 0.55)',
                       border: '1px solid rgba(255, 255, 255, 0.07)',
                       display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
+                      flexDirection: 'column',
+                      gap: '0.25rem',
                       transition: 'all 0.15s ease',
                     }}
                     className="room-dimension-card"
                   >
-                    <div>
-                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#ffffff' }}>
-                        {sc.name}
-                      </div>
-                      <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                        Step Count: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{scSteps} steps</strong>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#ffffff' }}>
+                        {sc.name || 'Staircase'} ({scSteps})
+                      </span>
                       <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
                         {scArea} sq ft
                       </span>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '0.2rem 0.4rem', fontSize: '0.72rem', color: '#f87171' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeletingStaircase(sc);
-                        }}
-                        title="Delete Staircase"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                      Step count: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{scSteps}</strong> steps
                     </div>
                   </div>
                 );
@@ -1949,8 +1915,16 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                 type="submit"
                 className="btn btn-primary"
                 disabled={isAddingRoom || !newRoomName.trim()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
               >
-                {isAddingRoom ? 'Adding Room...' : 'Add Room'}
+                {isAddingRoom ? (
+                  <>
+                    <RefreshCw size={13} className="spin" />
+                    Adding Room...
+                  </>
+                ) : (
+                  'Add Room'
+                )}
               </button>
             </div>
           </form>
@@ -1965,6 +1939,10 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
           setEditingStaircase(null);
         }}
         onSubmit={handleSaveStaircase}
+        onDelete={(sc) => {
+          setStaircaseOpen(false);
+          setDeletingStaircase(sc || editingStaircase);
+        }}
         initialData={editingStaircase}
         floors={floors}
         activeFloorId={activeFloorId}
@@ -1973,11 +1951,11 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       {/* 8. Delete Floor Confirmation */}
       <ConfirmationDialog
         isOpen={Boolean(deletingFloor)}
-        onClose={() => setDeletingFloor(null)}
+        onClose={() => !deleteFloorMutation.isPending && setDeletingFloor(null)}
         onConfirm={() => deleteFloorMutation.mutate(deletingFloor.id)}
         title="Delete Floor Level"
         message={`Delete "${deletingFloor?.name}"? All rooms and measurements on this floor will be removed.`}
-        confirmLabel="Delete Floor"
+        confirmLabel={deleteFloorMutation.isPending ? 'Deleting...' : 'Delete Floor'}
         confirmVariant="danger"
         isLoading={deleteFloorMutation.isPending}
       />
@@ -1985,11 +1963,11 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       {/* 9. Delete Room Confirmation */}
       <ConfirmationDialog
         isOpen={Boolean(deletingRoom)}
-        onClose={() => setDeletingRoom(null)}
+        onClose={() => !deleteRoomMutation.isPending && setDeletingRoom(null)}
         onConfirm={() => deleteRoomMutation.mutate(deletingRoom.id)}
         title="Delete Room"
         message={`Delete "${deletingRoom?.name}"? All measurements in this room will be removed.`}
-        confirmLabel="Delete Room"
+        confirmLabel={deleteRoomMutation.isPending ? 'Deleting...' : 'Delete Room'}
         confirmVariant="danger"
         isLoading={deleteRoomMutation.isPending}
       />
@@ -1997,11 +1975,11 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       {/* 10. Delete Staircase Confirmation */}
       <ConfirmationDialog
         isOpen={Boolean(deletingStaircase)}
-        onClose={() => setDeletingStaircase(null)}
+        onClose={() => !deleteStaircaseMutation.isPending && setDeletingStaircase(null)}
         onConfirm={() => deleteStaircaseMutation.mutate(deletingStaircase.id)}
         title="Delete Staircase"
         message={`Delete staircase "${deletingStaircase?.name}"?`}
-        confirmLabel="Delete Staircase"
+        confirmLabel={deleteStaircaseMutation.isPending ? 'Deleting...' : 'Delete Staircase'}
         confirmVariant="danger"
         isLoading={deleteStaircaseMutation.isPending}
       />

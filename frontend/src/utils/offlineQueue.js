@@ -104,3 +104,20 @@ export async function removeQueuedMutation(id) {
   notifyQueueChange();
 }
 
+export async function clearAllQueuedMutations() {
+  try {
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    writeFallback([]);
+  }
+  notifyQueueChange();
+}
+
+

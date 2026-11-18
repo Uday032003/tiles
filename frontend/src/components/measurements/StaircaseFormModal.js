@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Minus, Plus } from 'lucide-react';
+import { Minus, Plus, Trash2 } from 'lucide-react';
 import Modal from '../common/Modal.js';
 
 export default function StaircaseFormModal({
   isOpen,
   onClose,
   onSubmit,
+  onDelete = null,
   initialData = null,
   floors = [],
   activeFloorId = null,
@@ -249,13 +250,28 @@ export default function StaircaseFormModal({
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSaving}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={isSaving || countNum <= 0}>
-            {isSaving ? 'Saving...' : isEditing ? 'Save Staircase' : 'Add Staircase'}
-          </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            {isEditing && onDelete && (
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={() => onDelete(initialData)}
+                disabled={isSaving}
+                style={{ fontSize: '0.76rem', padding: '0.3rem 0.6rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+              >
+                <Trash2 size={13} /> Delete Staircase
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSaving}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={isSaving || countNum <= 0}>
+              {isSaving ? 'Saving...' : isEditing ? 'Save Staircase' : 'Add Staircase'}
+            </button>
+          </div>
         </div>
       </form>
     </Modal>

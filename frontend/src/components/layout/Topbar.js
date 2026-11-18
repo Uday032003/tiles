@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Menu, Plus, Search, Settings, User } from 'lucide-react';
+import { Database, LogOut, Menu, Plus, Search, Settings, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useUI } from '../../context/UIContext.js';
+import { useOfflineSync } from '../../context/OfflineSyncContext.js';
 
 export default function Topbar() {
   const { user, logout } = useAuth();
   const { toggleSidebar, searchQuery, setSearchQuery, showToast } = useUI();
+  const { isOnline, pendingCount, openOfflineModal } = useOfflineSync();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const navigate = useNavigate();
@@ -81,6 +83,29 @@ export default function Topbar() {
       </div>
 
       <div className="topbar-actions">
+        {(!isOnline || pendingCount > 0) && (
+          <button
+            type="button"
+            className={`badge ${!isOnline ? 'badge-warning' : 'badge-primary'}`}
+            style={{
+              cursor: 'pointer',
+              border: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              padding: '0.35rem 0.65rem',
+              borderRadius: 'var(--radius-sm)',
+              fontWeight: 600,
+              fontSize: '0.78rem',
+            }}
+            onClick={openOfflineModal}
+            title="View locally saved offline data"
+          >
+            <Database size={13} />
+            <span>{!isOnline ? 'Offline' : `${pendingCount} Offline`}</span>
+          </button>
+        )}
+
         <button
           type="button"
           className="btn btn-primary topbar-add-btn"
@@ -133,6 +158,17 @@ export default function Topbar() {
               >
                 <Settings size={15} />
                 Settings
+              </button>
+              <button
+                type="button"
+                className="profile-dropdown-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  openOfflineModal();
+                }}
+              >
+                <Database size={15} />
+                Offline Data {pendingCount > 0 ? `(${pendingCount})` : ''}
               </button>
               <button
                 type="button"

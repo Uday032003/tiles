@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import apiClient from '../services/apiClient.js';
-import { listQueuedMutations, removeQueuedMutation } from '../utils/offlineQueue.js';
+import { clearAllQueuedMutations, listQueuedMutations, removeQueuedMutation } from '../utils/offlineQueue.js';
+import OfflineDataModal from '../components/common/OfflineDataModal.js';
 import { useUI } from './UIContext.js';
 
 const OfflineSyncContext = createContext(null);
@@ -12,14 +13,30 @@ export function OfflineSyncProvider({ children }) {
   );
   const [queuedItems, setQueuedItems] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const queryClient = useQueryClient();
   const { showToast } = useUI();
+
+  const openOfflineModal = useCallback(() => setIsModalOpen(true), []);
+  const closeOfflineModal = useCallback(() => setIsModalOpen(false), []);
 
   const refreshQueue = useCallback(async () => {
     const list = await listQueuedMutations();
     setQueuedItems(list);
     return list;
   }, []);
+
+  const clearQueue = useCallback(async () => {
+    await clearAllQueuedMutations();
+    await refreshQueue();
+    showToast('Cleared offline queue.', 'info');
+  }, [refreshQueue, showToast]);
+
+  const removeItem = useCallback(async (id) => {
+    await removeQueuedMutation(id);
+    await refreshQueue();
+    showToast('Removed item from offline queue.', 'info');
+  }, [refreshQueue, showToast]);
 
   const flushQueue = useCallback(async () => {
     if (isSyncing || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
@@ -90,11 +107,17 @@ export function OfflineSyncProvider({ children }) {
         pendingCount: queuedItems.length,
         queuedItems,
         isSyncing,
+        isModalOpen,
+        openOfflineModal,
+        closeOfflineModal,
         flushQueue,
         refreshQueue,
+        clearQueue,
+        removeItem,
       }}
     >
       {children}
+      <OfflineDataModal isOpen={isModalOpen} onClose={closeOfflineModal} />
     </OfflineSyncContext.Provider>
   );
 }
@@ -107,8 +130,13 @@ export function useOfflineSync() {
       pendingCount: 0,
       queuedItems: [],
       isSyncing: false,
+      isModalOpen: false,
+      openOfflineModal: () => {},
+      closeOfflineModal: () => {},
       flushQueue: async () => {},
       refreshQueue: async () => [],
+      clearQueue: async () => {},
+      removeItem: async () => {},
     };
   }
   return ctx;

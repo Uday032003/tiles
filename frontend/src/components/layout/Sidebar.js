@@ -2,9 +2,11 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Building2,
+  Database,
   Settings,
 } from 'lucide-react';
 import { useUI } from '../../context/UIContext.js';
+import { useOfflineSync } from '../../context/OfflineSyncContext.js';
 
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -14,6 +16,7 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const { sidebarOpen, closeSidebar } = useUI();
+  const { pendingCount, openOfflineModal } = useOfflineSync();
 
   return (
     <>
@@ -43,6 +46,38 @@ export default function Sidebar() {
               <span>{label}</span>
             </NavLink>
           ))}
+
+          {/* Offline Mode Tab / Locally Saved Data */}
+          <button
+            type="button"
+            className="sidebar-link"
+            style={{
+              background: 'none',
+              border: 'none',
+              width: '100%',
+              textAlign: 'left',
+              cursor: 'pointer',
+              color: 'inherit',
+              font: 'inherit',
+            }}
+            onClick={() => {
+              closeSidebar();
+              openOfflineModal();
+            }}
+            title="View locally saved offline data"
+          >
+            <Database size={18} />
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <span>Offline Data</span>
+              {pendingCount > 0 ? (
+                <span className="badge badge-warning" style={{ fontSize: '0.68rem', padding: '0.1rem 0.35rem' }}>
+                  {pendingCount}
+                </span>
+              ) : (
+                <span style={{ fontSize: '0.68rem', opacity: 0.6 }}>0 saved</span>
+              )}
+            </span>
+          </button>
         </nav>
 
         <div className="sidebar-footer">
@@ -53,4 +88,5 @@ export default function Sidebar() {
     </>
   );
 }
+
 
