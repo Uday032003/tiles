@@ -1,5 +1,6 @@
 import * as roomsRepo from '../repositories/roomsRepository.js';
 import * as floorsRepo from '../repositories/floorsRepository.js';
+import * as measService from './measurementService.js';
 import { requireBuildingAccess } from './accessService.js';
 import { ApiError } from '../utils/apiError.js';
 
@@ -35,7 +36,15 @@ export async function createRoom(floorId, user, data) {
     throw ApiError.notFound('Floor not found');
   }
   await requireBuildingAccess(floor.building_id, user, 'can_edit_measurements');
-  return roomsRepo.createRoom(floorId, floor.building_id, user.id, data);
+  const room = await roomsRepo.createRoom(floorId, floor.building_id, user.id, data);
+  if (data.initialMeasurement) {
+    try {
+      await measService.createMeasurement(room.id, user, data.initialMeasurement);
+    } catch (err) {
+      console.error('Failed to create initial measurement for room:', err);
+    }
+  }
+  return room;
 }
 
 export async function updateRoom(roomId, user, data) {

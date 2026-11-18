@@ -349,6 +349,34 @@ export async function getBuildingTree(buildingId) {
     measurementsByRoom.get(m.room_id).push(mapMeasurementRow(m));
   }
 
+  const { rows: stairRows } = await query(
+    `SELECT s.* FROM staircases s
+     WHERE s.building_id = $1
+     ORDER BY s.created_at ASC`,
+    [buildingId]
+  );
+
+  for (const s of stairRows) {
+    if (!measurementsByRoom.has(s.room_id)) {
+      measurementsByRoom.set(s.room_id, []);
+    }
+    measurementsByRoom.get(s.room_id).push({
+      id: s.id,
+      roomId: s.room_id,
+      floorId: s.floor_id,
+      buildingId: s.building_id,
+      name: s.name,
+      surfaceRole: 'STAIRCASE',
+      workTypeCode: 'GRANITE_STAIRCASE',
+      inputMethod: 'DIMENSIONS',
+      widthRaw: String(s.tread_width_ft || 0),
+      lengthRaw: String(s.tread_count || 0),
+      netArea: Number(s.total_area_sqft || 0),
+      isStaircase: true,
+      staircase: s,
+    });
+  }
+
   const roomsByFloor = new Map();
   for (const r of roomRows) {
     if (!roomsByFloor.has(r.floor_id)) {

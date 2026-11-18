@@ -17,6 +17,21 @@ export const roomService = {
   },
 
   async create(floorId, payload) {
+    const im = payload?.initialMeasurement;
+    const mockMeas = im
+      ? [
+          {
+            id: `offline-meas-${Date.now()}`,
+            name: im.name,
+            surfaceRole: im.surfaceRole,
+            workTypeCode: im.surfaceRole === 'WALL' ? 'WALL_TILES' : 'FLOOR_TILES',
+            widthRaw: String(im.widthRaw || ''),
+            lengthRaw: String(im.lengthRaw || ''),
+            netArea: Number(im.widthRaw || 0) * Number(im.lengthRaw || 0),
+          },
+        ]
+      : [];
+
     return mutateWithOfflineQueue({
       method: 'POST',
       url: `/floors/${floorId}/rooms`,
@@ -26,7 +41,7 @@ export const roomService = {
         id: `offline-room-${Date.now()}`,
         name: payload?.name,
         floorId,
-        measurements: [],
+        measurements: mockMeas,
       },
     });
   },

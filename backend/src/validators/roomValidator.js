@@ -16,6 +16,7 @@ export const createRoomSchema = z.object({
     .nullable()
     .optional()
     .or(z.literal('').transform(() => null)),
+  initialMeasurement: z.any().optional(),
 });
 
 export const updateRoomSchema = z.object({

@@ -136,6 +136,7 @@ export default function StaircaseFormModal({
           landingWidthFt: Number(landingWidthFt || 0),
           skirtingLengthFt: Number(skirtingLengthFt || 0),
           stepsData: isUniformSteps ? [] : stepsData,
+          totalAreaSqft: preview?.totalAreaSqft || 0,
           notes: notes.trim() || null,
         });
       }

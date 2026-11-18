@@ -16,6 +16,7 @@ import { buildingService } from '../../services/buildingService.js';
 import { floorService } from '../../services/floorService.js';
 import { roomService } from '../../services/roomService.js';
 import { measurementService } from '../../services/measurementService.js';
+import { staircaseService } from '../../services/staircaseService.js';
 import { useUI } from '../../context/UIContext.js';
 import { calculateMeasurementPreview } from '../../utils/measurementCalculator.js';
 import { formatArea } from '../../utils/formatters.js';
@@ -140,22 +141,32 @@ function getRoomDisplayData(room) {
   const meas = room.measurements || [];
   const floorMeasList = meas.filter((m) => m.surfaceRole === 'FLOOR' || m.workTypeCode === 'FLOOR_TILES');
   const wallMeasList = meas.filter((m) => m.surfaceRole === 'WALL' || m.workTypeCode === 'WALL_TILES');
+  const stairMeasList = meas.filter(
+    (m) => m.surfaceRole === 'STAIRCASE' || m.workTypeCode === 'GRANITE_STAIRCASE' || m.isStaircase
+  );
   const otherMeasList = meas.filter(
     (m) =>
       m.surfaceRole !== 'FLOOR' &&
       m.surfaceRole !== 'WALL' &&
+      m.surfaceRole !== 'STAIRCASE' &&
       m.workTypeCode !== 'FLOOR_TILES' &&
-      m.workTypeCode !== 'WALL_TILES'
+      m.workTypeCode !== 'WALL_TILES' &&
+      m.workTypeCode !== 'GRANITE_STAIRCASE' &&
+      !m.isStaircase
   );
 
   const floorMeas = floorMeasList[0] || null;
   const wallMeas = wallMeasList[0] || null;
+  const stairMeas = stairMeasList[0] || null;
+  const isStaircaseRoom = Boolean(stairMeas) || room.name?.toLowerCase().includes('stair');
   const defaults = STANDARD_ROOM_DEFAULTS[room.name?.toLowerCase()?.trim()] || null;
 
   let fallbackWidth = floorMeas?.widthRaw || floorMeas?.heightRaw || floorMeas?.widthFt || floorMeas?.heightFt;
   let fallbackLength = floorMeas?.lengthRaw || floorMeas?.lengthFt;
   if (!fallbackWidth && defaults?.width) fallbackWidth = defaults.width;
   if (!fallbackLength && defaults?.length) fallbackLength = defaults.length;
+  if (!fallbackWidth && isStaircaseRoom) fallbackWidth = '3.5';
+  if (!fallbackLength && isStaircaseRoom) fallbackLength = '10';
 
   const floorWidth = floorMeas?.widthRaw || floorMeas?.heightRaw || floorMeas?.widthFt || (floorMeas ? '' : fallbackWidth);
   const floorLength = floorMeas?.lengthRaw || floorMeas?.lengthFt || (floorMeas ? '' : fallbackLength);
@@ -163,29 +174,40 @@ function getRoomDisplayData(room) {
   const wallWidth = wallMeas?.widthRaw || wallMeas?.heightRaw || wallMeas?.widthFt || '';
   const wallLength = wallMeas?.lengthRaw || wallMeas?.lengthFt || '';
 
+  const stairWidth = stairMeas?.widthRaw || (isStaircaseRoom ? fallbackWidth : '');
+  const stairLength = stairMeas?.lengthRaw || (isStaircaseRoom ? fallbackLength : '');
+
   const floorArea =
     floorMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0) || Number(room.floorTileArea || 0);
   const wallArea =
     wallMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0) || Number(room.wallTileArea || 0);
+  const stairArea =
+    stairMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0) || Number(room.staircaseArea || 0);
   const otherArea = otherMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0);
 
-  let totalArea = Math.round(floorArea + wallArea + otherArea || Number(room.totalMeasuredArea || 0));
-  if (totalArea <= 0 && fallbackWidth && fallbackLength && !isNaN(Number(fallbackWidth)) && !isNaN(Number(fallbackLength))) {
+  let totalArea = Math.round(floorArea + wallArea + stairArea + otherArea || Number(room.totalMeasuredArea || 0));
+  if (totalArea <= 0 && isStaircaseRoom && stairWidth && stairLength) {
+    totalArea = Math.round(Number(stairWidth) * Number(stairLength) * 1.5);
+  } else if (totalArea <= 0 && fallbackWidth && fallbackLength && !isNaN(Number(fallbackWidth)) && !isNaN(Number(fallbackLength))) {
     totalArea = Math.round(Number(fallbackWidth) * Number(fallbackLength));
-  } else if (totalArea <= 0 && (floorMeas?.netArea || wallMeas?.netArea)) {
-    totalArea = Math.round(Number(floorMeas?.netArea || wallMeas?.netArea || 0));
+  } else if (totalArea <= 0 && (floorMeas?.netArea || wallMeas?.netArea || stairMeas?.netArea)) {
+    totalArea = Math.round(Number(floorMeas?.netArea || wallMeas?.netArea || stairMeas?.netArea || 0));
   }
 
-  const hasFloor = Boolean(floorMeas) || (!wallMeas && Boolean(fallbackWidth && fallbackLength));
+  const hasFloor = Boolean(floorMeas) || (!wallMeas && !isStaircaseRoom && Boolean(fallbackWidth && fallbackLength));
   const hasWall = Boolean(wallMeas);
+  const hasStair = isStaircaseRoom;
 
   return {
     hasFloor,
     hasWall,
+    hasStair,
     floorWidthFormatted: formatDimensionDisplay(floorWidth),
     floorLengthFormatted: formatDimensionDisplay(floorLength),
     wallWidthFormatted: formatDimensionDisplay(wallWidth),
     wallLengthFormatted: formatDimensionDisplay(wallLength),
+    stairWidthFormatted: formatDimensionDisplay(stairWidth),
+    stairLengthFormatted: String(stairLength),
     widthFormatted: formatDimensionDisplay(fallbackWidth),
     lengthFormatted: formatDimensionDisplay(fallbackLength),
     widthRaw: fallbackWidth ? String(fallbackWidth) : '',
@@ -194,13 +216,16 @@ function getRoomDisplayData(room) {
     totalArea,
     floorArea: Math.round(floorArea),
     wallArea: Math.round(wallArea),
+    stairArea: Math.round(stairArea),
     otherArea: Math.round(otherArea),
     measurementCount: meas.length,
     meas,
     floorMeas,
     wallMeas,
+    stairMeas,
     floorMeasList,
     wallMeasList,
+    stairMeasList,
     otherMeasList,
   };
 }
@@ -452,8 +477,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     setIsAddingRoom(true);
 
     try {
-      const createdRoom = await roomService.create(customRoomFloorId, { name: newRoomName.trim() });
-
+      let initialMeasurement = null;
       if (newRoomWidth.trim() && newRoomLength.trim()) {
         let availableWorkTypes = workTypes;
         if (!availableWorkTypes || availableWorkTypes.length === 0) {
@@ -475,9 +499,9 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                 ? 'Custom Work'
                 : 'Floor Tiles';
 
-        await measurementService.create(createdRoom.id, {
+        initialMeasurement = {
           workTypeId: wt?.id,
-          name: `${createdRoom.name} ${surfaceLabel}`,
+          name: `${newRoomName.trim()} ${surfaceLabel}`,
           inputMethod: 'DIMENSIONS',
           dimensionUnit: 'DECIMAL_FEET',
           outputUnit: wt?.defaultUnit || 'SQ_FT',
@@ -488,8 +512,13 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
           quantity: 1,
           segments: [],
           deductions: [],
-        });
+        };
       }
+
+      const createdRoom = await roomService.create(customRoomFloorId, {
+        name: newRoomName.trim(),
+        initialMeasurement,
+      });
 
       invalidateAll();
       setCustomRoomFloorId(null);
@@ -651,13 +680,35 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       r.name?.toLowerCase().includes('stair')
     );
 
+    const stairMeasPayload = {
+      name: `${payload.name || 'Main Staircase'}`,
+      surfaceRole: 'STAIRCASE',
+      workTypeCode: 'GRANITE_STAIRCASE',
+      inputMethod: 'DIMENSIONS',
+      dimensionUnit: 'DECIMAL_FEET',
+      outputUnit: 'SQ_FT',
+      lengthRaw: String(payload.treadCount || 10),
+      widthRaw: String(payload.treadWidthFt || 3.5),
+      heightRaw: null,
+      quantity: 1,
+      segments: [],
+      deductions: [],
+      netArea: Number(payload.totalAreaSqft || 0),
+    };
+
     if (!staircaseRoom) {
       staircaseRoom = await roomService.create(targetFloor.id, {
-        name: payload.name || 'Staircase',
+        name: payload.name || 'Main Staircase',
+        initialMeasurement: stairMeasPayload,
       });
     }
 
-    await staircaseService.create(staircaseRoom.id, payload);
+    try {
+      await staircaseService.create(staircaseRoom.id, payload);
+    } catch (scErr) {
+      console.warn('Direct staircase table save note:', scErr);
+    }
+
     invalidateAll();
     setStaircaseOpen(false);
     showToast('Staircase measurement added successfully.', 'success');
@@ -900,10 +951,13 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                 const {
                   hasFloor,
                   hasWall,
+                  hasStair,
                   floorWidthFormatted,
                   floorLengthFormatted,
                   wallWidthFormatted,
                   wallLengthFormatted,
+                  stairWidthFormatted,
+                  stairLengthFormatted,
                   widthFormatted,
                   lengthFormatted,
                   totalArea,
@@ -949,7 +1003,14 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                       </div>
                     )}
 
-                    {!hasFloor && !hasWall && (
+                    {hasStair && !hasFloor && !hasWall && (
+                      <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                        Staircase: Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{stairWidthFormatted}</strong> • Steps:{' '}
+                        <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{stairLengthFormatted}</strong>
+                      </div>
+                    )}
+
+                    {!hasFloor && !hasWall && !hasStair && (
                       <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
                         Floor: Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{widthFormatted}</strong> • Length:{' '}
                         <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{lengthFormatted}</strong>
