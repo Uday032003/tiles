@@ -8,11 +8,14 @@ export default function StaircaseFormModal({
   onClose,
   onSubmit,
   initialData = null,
+  floors = [],
+  activeFloorId = null,
 }) {
   const isEditing = Boolean(initialData);
   const [serverError, setServerError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  const [selectedFloorId, setSelectedFloorId] = useState('');
   const [name, setName] = useState('Main Staircase');
   const [isUniformSteps, setIsUniformSteps] = useState(true);
   const [treadCount, setTreadCount] = useState('10');
@@ -30,6 +33,12 @@ export default function StaircaseFormModal({
     if (!isOpen) return;
     setServerError('');
     setIsSaving(false);
+
+    if (activeFloorId) {
+      setSelectedFloorId(activeFloorId);
+    } else if (floors && floors.length > 0) {
+      setSelectedFloorId(floors[0].id);
+    }
 
     if (initialData) {
       setName(initialData.name || 'Main Staircase');
@@ -58,7 +67,7 @@ export default function StaircaseFormModal({
       setStepsData([]);
       setNotes('');
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, activeFloorId, floors]);
 
   const preview = useMemo(
     () =>
@@ -113,20 +122,23 @@ export default function StaircaseFormModal({
 
     setIsSaving(true);
     try {
-      await onSubmit({
-        name: name.trim(),
-        isUniformSteps,
-        treadCount: Number(treadCount || 0),
-        riserCount: Number(riserCount || 0),
-        treadWidthFt: Number(treadWidthFt || 0),
-        treadDepthFt: Number(treadDepthFt || 0),
-        riserHeightFt: Number(riserHeightFt || 0),
-        landingLengthFt: Number(landingLengthFt || 0),
-        landingWidthFt: Number(landingWidthFt || 0),
-        skirtingLengthFt: Number(skirtingLengthFt || 0),
-        stepsData: isUniformSteps ? [] : stepsData,
-        notes: notes.trim() || null,
-      });
+      if (onSubmit) {
+        await onSubmit({
+          floorId: selectedFloorId || null,
+          name: name.trim(),
+          isUniformSteps,
+          treadCount: Number(treadCount || 0),
+          riserCount: Number(riserCount || 0),
+          treadWidthFt: Number(treadWidthFt || 0),
+          treadDepthFt: Number(treadDepthFt || 0),
+          riserHeightFt: Number(riserHeightFt || 0),
+          landingLengthFt: Number(landingLengthFt || 0),
+          landingWidthFt: Number(landingWidthFt || 0),
+          skirtingLengthFt: Number(skirtingLengthFt || 0),
+          stepsData: isUniformSteps ? [] : stepsData,
+          notes: notes.trim() || null,
+        });
+      }
       onClose();
     } catch (err) {
       setServerError(err.message || 'Unable to save staircase measurement');
@@ -155,6 +167,26 @@ export default function StaircaseFormModal({
       {serverError && <div className="alert alert-error">{serverError}</div>}
 
       <form id="staircase-form" onSubmit={handleSubmit} noValidate>
+        {floors && floors.length > 1 && (
+          <div className="form-group" style={{ marginBottom: '0.85rem' }}>
+            <label className="form-label" htmlFor="stair-floor">
+              Target Floor
+            </label>
+            <select
+              id="stair-floor"
+              className="form-select"
+              value={selectedFloorId}
+              onChange={(e) => setSelectedFloorId(e.target.value)}
+            >
+              {floors.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="grid-2">
           <div className="form-group">
             <label className="form-label" htmlFor="stair-name">

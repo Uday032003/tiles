@@ -1,4 +1,4 @@
-import apiClient from './apiClient.js';
+import apiClient, { mutateWithOfflineQueue } from './apiClient.js';
 
 export const staircaseService = {
   async listByRoom(roomId) {
@@ -12,18 +12,37 @@ export const staircaseService = {
   },
 
   async create(roomId, payload) {
-    const { data } = await apiClient.post(`/rooms/${roomId}/staircases`, payload);
-    return data.data;
+    return mutateWithOfflineQueue({
+      method: 'POST',
+      url: `/rooms/${roomId}/staircases`,
+      data: payload,
+      label: `Add staircase "${payload?.name || 'Staircase'}"`,
+      mockResult: {
+        id: `offline-staircase-${Date.now()}`,
+        roomId,
+        name: payload?.name,
+        ...payload,
+      },
+    });
   },
 
   async update(staircaseId, payload) {
-    const { data } = await apiClient.patch(`/staircases/${staircaseId}`, payload);
-    return data.data;
+    return mutateWithOfflineQueue({
+      method: 'PATCH',
+      url: `/staircases/${staircaseId}`,
+      data: payload,
+      label: `Update staircase "${payload?.name || ''}"`,
+      mockResult: { id: staircaseId, ...payload },
+    });
   },
 
   async remove(staircaseId) {
-    const { data } = await apiClient.delete(`/staircases/${staircaseId}`);
-    return data.data;
+    return mutateWithOfflineQueue({
+      method: 'DELETE',
+      url: `/staircases/${staircaseId}`,
+      label: `Delete staircase`,
+      mockResult: { id: staircaseId, deleted: true },
+    });
   },
 };
 

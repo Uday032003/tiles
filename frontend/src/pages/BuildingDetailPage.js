@@ -75,11 +75,16 @@ export default function BuildingDetailPage() {
   }
 
   if (buildingQuery.isError) {
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
     return (
       <div className="card" style={{ textAlign: 'center', padding: '2rem 1.25rem', maxWidth: 500, margin: '1rem auto' }}>
-        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--danger)' }}>Building Not Found</h3>
+        <h3 style={{ margin: '0 0 0.5rem', color: isOffline ? '#f59e0b' : 'var(--danger)' }}>
+          {isOffline ? 'Offline — No Local Copy' : 'Building Not Found'}
+        </h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', marginBottom: '1.25rem' }}>
-          {buildingQuery.error?.message || 'This building does not exist or has been deleted.'}
+          {isOffline
+            ? 'This building has not been cached on this device yet. Please connect to the internet once to load it offline.'
+            : (buildingQuery.error?.message || 'This building does not exist or has been deleted.')}
         </p>
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
           <Link to="/buildings" className="btn btn-primary btn-sm">

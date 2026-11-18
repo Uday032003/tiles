@@ -148,14 +148,20 @@ function getRoomDisplayData(room) {
       m.workTypeCode !== 'WALL_TILES'
   );
 
-  const floorMeas = floorMeasList[0] || meas[0];
+  const floorMeas = floorMeasList[0] || null;
+  const wallMeas = wallMeasList[0] || null;
   const defaults = STANDARD_ROOM_DEFAULTS[room.name?.toLowerCase()?.trim()] || null;
 
-  let widthVal = floorMeas?.widthRaw || floorMeas?.heightRaw || floorMeas?.widthFt || floorMeas?.heightFt;
-  let lengthVal = floorMeas?.lengthRaw || floorMeas?.lengthFt;
+  let fallbackWidth = floorMeas?.widthRaw || floorMeas?.heightRaw || floorMeas?.widthFt || floorMeas?.heightFt;
+  let fallbackLength = floorMeas?.lengthRaw || floorMeas?.lengthFt;
+  if (!fallbackWidth && defaults?.width) fallbackWidth = defaults.width;
+  if (!fallbackLength && defaults?.length) fallbackLength = defaults.length;
 
-  if (!widthVal && defaults?.width) widthVal = defaults.width;
-  if (!lengthVal && defaults?.length) lengthVal = defaults.length;
+  const floorWidth = floorMeas?.widthRaw || floorMeas?.heightRaw || floorMeas?.widthFt || (floorMeas ? '' : fallbackWidth);
+  const floorLength = floorMeas?.lengthRaw || floorMeas?.lengthFt || (floorMeas ? '' : fallbackLength);
+
+  const wallWidth = wallMeas?.widthRaw || wallMeas?.heightRaw || wallMeas?.widthFt || '';
+  const wallLength = wallMeas?.lengthRaw || wallMeas?.lengthFt || '';
 
   const floorArea =
     floorMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0) || Number(room.floorTileArea || 0);
@@ -164,17 +170,26 @@ function getRoomDisplayData(room) {
   const otherArea = otherMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0);
 
   let totalArea = Math.round(floorArea + wallArea + otherArea || Number(room.totalMeasuredArea || 0));
-  if (totalArea <= 0 && widthVal && lengthVal && !isNaN(Number(widthVal)) && !isNaN(Number(lengthVal))) {
-    totalArea = Math.round(Number(widthVal) * Number(lengthVal));
-  } else if (totalArea <= 0 && floorMeas?.netArea) {
-    totalArea = Math.round(Number(floorMeas.netArea));
+  if (totalArea <= 0 && fallbackWidth && fallbackLength && !isNaN(Number(fallbackWidth)) && !isNaN(Number(fallbackLength))) {
+    totalArea = Math.round(Number(fallbackWidth) * Number(fallbackLength));
+  } else if (totalArea <= 0 && (floorMeas?.netArea || wallMeas?.netArea)) {
+    totalArea = Math.round(Number(floorMeas?.netArea || wallMeas?.netArea || 0));
   }
 
+  const hasFloor = Boolean(floorMeas) || (!wallMeas && Boolean(fallbackWidth && fallbackLength));
+  const hasWall = Boolean(wallMeas);
+
   return {
-    widthFormatted: formatDimensionDisplay(widthVal),
-    lengthFormatted: formatDimensionDisplay(lengthVal),
-    widthRaw: widthVal ? String(widthVal) : '',
-    lengthRaw: lengthVal ? String(lengthVal) : '',
+    hasFloor,
+    hasWall,
+    floorWidthFormatted: formatDimensionDisplay(floorWidth),
+    floorLengthFormatted: formatDimensionDisplay(floorLength),
+    wallWidthFormatted: formatDimensionDisplay(wallWidth),
+    wallLengthFormatted: formatDimensionDisplay(wallLength),
+    widthFormatted: formatDimensionDisplay(fallbackWidth),
+    lengthFormatted: formatDimensionDisplay(fallbackLength),
+    widthRaw: fallbackWidth ? String(fallbackWidth) : '',
+    lengthRaw: fallbackLength ? String(fallbackLength) : '',
     area: totalArea,
     totalArea,
     floorArea: Math.round(floorArea),
@@ -183,6 +198,7 @@ function getRoomDisplayData(room) {
     measurementCount: meas.length,
     meas,
     floorMeas,
+    wallMeas,
     floorMeasList,
     wallMeasList,
     otherMeasList,
@@ -299,10 +315,14 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       }),
     onSuccess: (newFloor) => {
       invalidateAll();
-      setActiveFloorId(newFloor.id);
+      if (newFloor?.id) setActiveFloorId(newFloor.id);
       setCustomFloorModalOpen(false);
       setNewFloorName('');
-      showToast(`Floor "${newFloor.name}" added.`, 'success');
+      if (newFloor?.queuedOffline) {
+        showToast(`Offline mode: Floor "${newFloor.name}" saved locally.`, 'info');
+      } else {
+        showToast(`Floor "${newFloor.name}" added.`, 'success');
+      }
     },
     onError: (err) => showToast(err.message || 'Failed to add floor', 'error'),
   });
@@ -334,7 +354,11 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       invalidateAll();
       setCustomRoomFloorId(null);
       setNewRoomName('');
-      showToast(`Room "${newRoom.name}" added.`, 'success');
+      if (newRoom?.queuedOffline) {
+        showToast(`Offline mode: Room "${newRoom.name}" saved locally.`, 'info');
+      } else {
+        showToast(`Room "${newRoom.name}" added.`, 'success');
+      }
     },
     onError: (err) => showToast(err.message || 'Failed to add room', 'error'),
   });
@@ -352,18 +376,26 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
 
   const addMeasurementMutation = useMutation({
     mutationFn: ({ roomId, payload }) => measurementService.create(roomId, payload),
-    onSuccess: () => {
+    onSuccess: (res) => {
       invalidateAll();
-      showToast('Measurement saved.', 'success');
+      if (res?.queuedOffline) {
+        showToast('Offline mode: Measurement saved locally.', 'info');
+      } else {
+        showToast('Measurement saved.', 'success');
+      }
     },
     onError: (err) => showToast(err.message || 'Save failed', 'error'),
   });
 
   const updateMeasurementMutation = useMutation({
     mutationFn: ({ id, payload }) => measurementService.update(id, payload),
-    onSuccess: () => {
+    onSuccess: (res) => {
       invalidateAll();
-      showToast('Measurement updated.', 'success');
+      if (res?.queuedOffline) {
+        showToast('Offline mode: Measurement updated locally.', 'info');
+      } else {
+        showToast('Measurement updated.', 'success');
+      }
     },
     onError: (err) => showToast(err.message || 'Update failed', 'error'),
   });
@@ -466,7 +498,12 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       setNewRoomLength('');
       setNewRoomSurface('FLOOR_TILES');
       setNewRoomCustomName('');
-      showToast(`Room "${createdRoom.name}" added successfully.`, 'success');
+      showToast(
+        createdRoom?.queuedOffline
+          ? `Offline mode: Room "${createdRoom.name}" saved locally.`
+          : `Room "${createdRoom.name}" added successfully.`,
+        'success'
+      );
     } catch (err) {
       setNewRoomError(err.message || 'Failed to add room');
     } finally {
@@ -602,6 +639,30 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     }
   };
 
+  // Handle Save Staircase Measurement
+  const handleSaveStaircase = async (payload) => {
+    const floorId = payload.floorId || activeFloorId || floors[0]?.id;
+    const targetFloor = floors.find((f) => f.id === floorId) || activeFloor || floors[0];
+    if (!targetFloor) {
+      throw new Error('Please add a floor level first.');
+    }
+
+    let staircaseRoom = (targetFloor.rooms || []).find((r) =>
+      r.name?.toLowerCase().includes('stair')
+    );
+
+    if (!staircaseRoom) {
+      staircaseRoom = await roomService.create(targetFloor.id, {
+        name: payload.name || 'Staircase',
+      });
+    }
+
+    await staircaseService.create(staircaseRoom.id, payload);
+    invalidateAll();
+    setStaircaseOpen(false);
+    showToast('Staircase measurement added successfully.', 'success');
+  };
+
   // WhatsApp share
   const handleSharePdf = async () => {
     if (floors.length === 0) {
@@ -629,10 +690,13 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
   }
 
   if (treeQuery.isError) {
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
     return (
       <div className="card" style={{ textAlign: 'center', padding: '1.5rem', margin: '0.5rem 0' }}>
-        <p style={{ color: 'var(--danger)', fontSize: '0.86rem', margin: '0 0 0.8rem' }}>
-          {treeQuery.error?.message || 'Failed to load building measurements.'}
+        <p style={{ color: isOffline ? '#f59e0b' : 'var(--danger)', fontSize: '0.86rem', margin: '0 0 0.8rem' }}>
+          {isOffline
+            ? 'Offline Mode: This building layout has not been cached on this device yet. Please connect to internet once to view it offline.'
+            : (treeQuery.error?.message || 'Failed to load building measurements.')}
         </p>
         <button
           type="button"
@@ -834,12 +898,15 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
               {activeFloorRooms.map((room) => {
                 const {
+                  hasFloor,
+                  hasWall,
+                  floorWidthFormatted,
+                  floorLengthFormatted,
+                  wallWidthFormatted,
+                  wallLengthFormatted,
                   widthFormatted,
                   lengthFormatted,
                   totalArea,
-                  floorArea,
-                  wallArea,
-                  meas,
                 } = getRoomDisplayData(room);
 
                 return (
@@ -854,7 +921,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                       border: '1px solid rgba(255, 255, 255, 0.07)',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '0.4rem',
+                      gap: '0.25rem',
                       transition: 'all 0.15s ease',
                     }}
                     className="room-dimension-card"
@@ -863,128 +930,31 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                       <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#ffffff' }}>
                         {room.name}
                       </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        {floorArea > 0 && wallArea > 0 ? (
-                          <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontFamily: 'monospace' }}>
-                            <span style={{ color: 'var(--primary)', fontWeight: 700 }}>F: {floorArea}</span> •{' '}
-                            <span style={{ color: '#38bdf8', fontWeight: 700 }}>W: {wallArea}</span>{' '}
-                            <strong style={{ color: '#ffffff' }}>({totalArea} sq ft)</strong>
-                          </div>
-                        ) : (
-                          <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
-                            {totalArea} sq ft
-                          </span>
-                        )}
+                      <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
+                        {totalArea} sq ft
+                      </span>
+                    </div>
+
+                    {hasFloor && (
+                      <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                        Floor: Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{floorWidthFormatted || widthFormatted}</strong> • Length:{' '}
+                        <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{floorLengthFormatted || lengthFormatted}</strong>
                       </div>
-                    </div>
+                    )}
 
-                    {/* Surface Measurements Breakdown (Floor Tiles, Wall Tiles, Custom) */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                      {meas && meas.length > 0 ? (
-                        meas.map((m) => {
-                          const isWall = m.surfaceRole === 'WALL' || m.workTypeCode === 'WALL_TILES';
-                          const isCustom = m.surfaceRole === 'OTHER' || m.workTypeCode === 'CUSTOM_WORK';
-                          const label = isWall
-                            ? 'Wall Tiles'
-                            : isCustom
-                              ? m.name?.replace(room.name, '').trim() || 'Custom'
-                              : 'Floor Tiles';
-                          const tagColor = isWall ? '#38bdf8' : isCustom ? '#c084fc' : 'var(--primary)';
-                          const tagBg = isWall
-                            ? 'rgba(56, 189, 248, 0.12)'
-                            : isCustom
-                              ? 'rgba(192, 132, 252, 0.12)'
-                              : 'rgba(20, 184, 166, 0.12)';
-                          const tagBorder = isWall
-                            ? 'rgba(56, 189, 248, 0.3)'
-                            : isCustom
-                              ? 'rgba(192, 132, 252, 0.3)'
-                              : 'rgba(20, 184, 166, 0.3)';
+                    {hasWall && (
+                      <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                        Wall: Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{wallWidthFormatted}</strong> • Length:{' '}
+                        <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{wallLengthFormatted}</strong>
+                      </div>
+                    )}
 
-                          const widthStr = formatDimensionDisplay(m.widthRaw || m.widthFt || m.heightRaw);
-                          const lengthStr = formatDimensionDisplay(m.lengthRaw || m.lengthFt);
-                          const mArea = m.netArea ? Math.round(m.netArea) : 0;
-
-                          return (
-                            <div
-                              key={m.id}
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '0.25rem 0.5rem',
-                                background: 'rgba(15, 23, 42, 0.45)',
-                                borderRadius: 'var(--radius-sm)',
-                                fontSize: '0.78rem',
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                                <span
-                                  style={{
-                                    fontSize: '0.68rem',
-                                    fontWeight: 700,
-                                    padding: '0.12rem 0.4rem',
-                                    borderRadius: 4,
-                                    background: tagBg,
-                                    color: tagColor,
-                                    border: `1px solid ${tagBorder}`,
-                                    letterSpacing: '0.02em',
-                                  }}
-                                >
-                                  {label}
-                                </span>
-                                <span style={{ color: '#94a3b8' }}>
-                                  Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{widthStr}</strong> • Length:{' '}
-                                  <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{lengthStr}</strong>
-                                </span>
-                              </div>
-                              {mArea > 0 && (
-                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: tagColor, fontFamily: 'monospace' }}>
-                                  {mArea} sq ft
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '0.25rem 0.5rem',
-                            background: 'rgba(15, 23, 42, 0.45)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '0.78rem',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                            <span
-                              style={{
-                                fontSize: '0.68rem',
-                                fontWeight: 700,
-                                padding: '0.12rem 0.4rem',
-                                borderRadius: 4,
-                                background: 'rgba(20, 184, 166, 0.12)',
-                                color: 'var(--primary)',
-                                border: '1px solid rgba(20, 184, 166, 0.3)',
-                              }}
-                            >
-                              Floor Tiles
-                            </span>
-                            <span style={{ color: '#94a3b8' }}>
-                              Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{widthFormatted}</strong> • Length:{' '}
-                              <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{lengthFormatted}</strong>
-                            </span>
-                          </div>
-                          {totalArea > 0 && (
-                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
-                              {totalArea} sq ft
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    {!hasFloor && !hasWall && (
+                      <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                        Floor: Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{widthFormatted}</strong> • Length:{' '}
+                        <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{lengthFormatted}</strong>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1790,8 +1760,10 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       <StaircaseFormModal
         isOpen={staircaseOpen}
         onClose={() => setStaircaseOpen(false)}
+        onSubmit={handleSaveStaircase}
         buildingId={buildingId}
         floors={floors}
+        activeFloorId={activeFloorId}
         workTypes={workTypes}
         onSaved={() => invalidateAll()}
       />

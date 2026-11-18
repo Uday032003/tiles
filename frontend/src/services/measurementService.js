@@ -36,8 +36,13 @@ export const measurementService = {
   },
 
   async update(measurementId, payload) {
-    const { data } = await apiClient.patch(`/measurements/${measurementId}`, payload);
-    return data.data;
+    return mutateWithOfflineQueue({
+      method: 'PATCH',
+      url: `/measurements/${measurementId}`,
+      data: payload,
+      label: `Update measurement`,
+      mockResult: { id: measurementId, ...payload },
+    });
   },
 
   async duplicate(measurementId) {
@@ -46,8 +51,12 @@ export const measurementService = {
   },
 
   async remove(measurementId) {
-    const { data } = await apiClient.delete(`/measurements/${measurementId}`);
-    return data.data;
+    return mutateWithOfflineQueue({
+      method: 'DELETE',
+      url: `/measurements/${measurementId}`,
+      label: `Delete measurement`,
+      mockResult: { id: measurementId, deleted: true },
+    });
   },
 
   async getHistory(measurementId) {

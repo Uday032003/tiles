@@ -1,4 +1,4 @@
-import apiClient from './apiClient.js';
+import apiClient, { mutateWithOfflineQueue } from './apiClient.js';
 
 export const roomService = {
   async listRoomTypes() {
@@ -17,18 +17,37 @@ export const roomService = {
   },
 
   async create(floorId, payload) {
-    const { data } = await apiClient.post(`/floors/${floorId}/rooms`, payload);
-    return data.data;
+    return mutateWithOfflineQueue({
+      method: 'POST',
+      url: `/floors/${floorId}/rooms`,
+      data: payload,
+      label: `Add room "${payload?.name || 'Room'}"`,
+      mockResult: {
+        id: `offline-room-${Date.now()}`,
+        name: payload?.name,
+        floorId,
+        measurements: [],
+      },
+    });
   },
 
   async update(roomId, payload) {
-    const { data } = await apiClient.patch(`/rooms/${roomId}`, payload);
-    return data.data;
+    return mutateWithOfflineQueue({
+      method: 'PATCH',
+      url: `/rooms/${roomId}`,
+      data: payload,
+      label: `Update room "${payload?.name || ''}"`,
+      mockResult: { id: roomId, ...payload },
+    });
   },
 
   async remove(roomId) {
-    const { data } = await apiClient.delete(`/rooms/${roomId}`);
-    return data.data;
+    return mutateWithOfflineQueue({
+      method: 'DELETE',
+      url: `/rooms/${roomId}`,
+      label: `Delete room`,
+      mockResult: { id: roomId, deleted: true },
+    });
   },
 
   async reorder(floorId, roomIds) {

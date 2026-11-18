@@ -19,9 +19,18 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30 * 1000,
-      retry: 1,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 24 * 60 * 60 * 1000,
+      retry: (failureCount, error) => {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+        if (error?.isNetworkError) return false;
+        return failureCount < 1;
+      },
       refetchOnWindowFocus: false,
+      networkMode: 'offlineFirst',
+    },
+    mutations: {
+      networkMode: 'offlineFirst',
     },
   },
 });
