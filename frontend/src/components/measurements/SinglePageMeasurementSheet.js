@@ -6,6 +6,7 @@ import {
   Edit2,
   Plus,
   Minus,
+  RefreshCw,
   Share2,
   Sparkles,
   Trash2,
@@ -138,6 +139,25 @@ function stepDimension(currentVal, delta) {
 }
 
 function getRoomDisplayData(room) {
+  if (!room) {
+    return {
+      hasFloor: false,
+      hasWall: false,
+      hasStaircase: false,
+      floorMeas: null,
+      wallMeas: null,
+      widthRaw: '',
+      lengthRaw: '',
+      widthFormatted: '-',
+      lengthFormatted: '-',
+      floorWidthFormatted: '',
+      floorLengthFormatted: '',
+      wallWidthFormatted: '',
+      wallLengthFormatted: '',
+      area: 0,
+      totalArea: 0,
+    };
+  }
   const meas = room.measurements || [];
   const floorMeasList = meas.filter((m) => m.surfaceRole === 'FLOOR' || m.workTypeCode === 'FLOOR_TILES');
   const wallMeasList = meas.filter((m) => m.surfaceRole === 'WALL' || m.workTypeCode === 'WALL_TILES');
@@ -323,6 +343,13 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     }, 0);
   }, [activeFloorStaircases]);
 
+  // Total steps on active floor for Staircase(count) button
+  const activeFloorTotalSteps = useMemo(() => {
+    return activeFloorStaircases.reduce((sum, s) => {
+      return sum + Number(s.treadCount || s.stepCount || 0);
+    }, 0);
+  }, [activeFloorStaircases]);
+
   // Total area for rooms only
   const activeFloorRoomsArea = useMemo(() => {
     return activeFloorRooms.reduce((acc, r) => {
@@ -351,13 +378,15 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
 
   // Invalidate queries helper (awaits refetches so loading indicators stay active until UI is updated)
   const invalidateAll = async () => {
-    return Promise.all([
-      queryClient.refetchQueries({ queryKey: ['building-tree', buildingId] }),
-      queryClient.refetchQueries({ queryKey: ['building-summary', buildingId] }),
-      queryClient.invalidateQueries({ queryKey: ['building', buildingId] }),
-      queryClient.invalidateQueries({ queryKey: ['building-staircases', buildingId] }),
-      queryClient.invalidateQueries({ queryKey: ['buildings'] }),
-    ]);
+    queryClient.invalidateQueries({ queryKey: ['building', buildingId] });
+    queryClient.invalidateQueries({ queryKey: ['building-summary', buildingId] });
+    queryClient.invalidateQueries({ queryKey: ['building-staircases', buildingId] });
+    queryClient.invalidateQueries({ queryKey: ['buildings'] });
+    try {
+      await queryClient.refetchQueries({ queryKey: ['building-tree', buildingId] });
+    } catch {
+      queryClient.invalidateQueries({ queryKey: ['building-tree', buildingId] });
+    }
   };
 
   // Mutations
@@ -443,6 +472,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
 
   const deleteRoomMutation = useMutation({
     mutationFn: async (roomId) => {
+      setSelectedRoom(null);
       await roomService.remove(roomId);
       await invalidateAll();
     },
@@ -453,6 +483,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     },
     onError: (err) => showToast(err.message || 'Failed to delete room', 'error'),
     onSettled: () => {
+      setSelectedRoom(null);
       setDeletingRoom(null);
     },
   });
@@ -912,11 +943,24 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              style={{ fontSize: '0.76rem', minHeight: 28, padding: '0.2rem 0.55rem' }}
-              onClick={() => setStaircaseOpen(true)}
-              title="Staircase Calculator"
+              style={{
+                fontSize: '0.76rem',
+                minHeight: 28,
+                padding: '0.2rem 0.55rem',
+                color: activeFloorTotalSteps > 0 ? 'var(--primary)' : 'inherit',
+                fontWeight: activeFloorTotalSteps > 0 ? 600 : 400,
+              }}
+              onClick={() => {
+                if (activeFloorStaircases.length > 0) {
+                  setEditingStaircase(activeFloorStaircases[0]);
+                } else {
+                  setEditingStaircase(null);
+                }
+                setStaircaseOpen(true);
+              }}
+              title="Staircase Step Count"
             >
-              <Ruler size={13} /> Staircase
+              <Ruler size={13} /> Staircase ({activeFloorTotalSteps})
             </button>
 
             <button
@@ -969,22 +1013,22 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
             }}
           >
             <div style={{ fontSize: '0.94rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-              Room Dimensions Overview ({activeFloorRooms.length + activeFloorStaircases.length}):
+              Room Dimensions Overview ({activeFloorRooms.length} Rooms):
               {(isAddingRoom || deleteRoomMutation.isPending || treeQuery.isFetching) && (
                 <RefreshCw size={13} className="spin" color="var(--primary)" />
               )}
             </div>
             <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
-              Total: {activeFloorTotalArea} sq ft
+              Total: {activeFloorRoomsArea} sq ft
             </div>
           </div>
 
           <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '0.75rem' }}>
-            Click any room or staircase to view or adjust dimensions
+            Click any room to view or adjust width and length
           </div>
 
-          {/* Vertical Stack of Room & Staircase Cards */}
-          {activeFloorRooms.length === 0 && activeFloorStaircases.length === 0 ? (
+          {/* Vertical Stack of Room Cards ONLY (Staircase kept separate on top button) */}
+          {activeFloorRooms.length === 0 ? (
             <div
               style={{
                 textAlign: 'center',
@@ -997,32 +1041,18 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                 gap: '0.5rem',
               }}
             >
-              <div>No rooms or staircases on {activeFloor.name} yet.</div>
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
-                  onClick={() => openAddRoomModal(activeFloor.id)}
-                >
-                  <Plus size={13} /> Add Room
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
-                  onClick={() => {
-                    setEditingStaircase(null);
-                    setStaircaseOpen(true);
-                  }}
-                >
-                  <Plus size={13} /> Add Staircase
-                </button>
-              </div>
+              <div>No rooms on {activeFloor.name} yet.</div>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem', marginTop: '0.25rem' }}
+                onClick={() => openAddRoomModal(activeFloor.id)}
+              >
+                <Plus size={13} /> Add Room
+              </button>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-              {/* Rooms */}
               {activeFloorRooms.map((room) => {
                 const {
                   hasFloor,
@@ -1082,46 +1112,6 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                         <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{lengthFormatted}</strong>
                       </div>
                     )}
-                  </div>
-                );
-              })}
-
-              {/* Staircases directly within the overview list: {Staircase (count)} */}
-              {activeFloorStaircases.map((sc) => {
-                const scSteps = sc.treadCount || sc.stepCount || 15;
-                const scArea = Math.round(Number(sc.totalAreaSqft || scSteps * 5.25));
-
-                return (
-                  <div
-                    key={sc.id}
-                    onClick={() => {
-                      setEditingStaircase(sc);
-                      setStaircaseOpen(true);
-                    }}
-                    style={{
-                      cursor: 'pointer',
-                      padding: '0.65rem 0.85rem',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'rgba(30, 41, 59, 0.55)',
-                      border: '1px solid rgba(255, 255, 255, 0.07)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.25rem',
-                      transition: 'all 0.15s ease',
-                    }}
-                    className="room-dimension-card"
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#ffffff' }}>
-                        {sc.name || 'Staircase'} ({scSteps})
-                      </span>
-                      <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
-                        {scArea} sq ft
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                      Step count: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{scSteps}</strong> steps
-                    </div>
                   </div>
                 );
               })}
