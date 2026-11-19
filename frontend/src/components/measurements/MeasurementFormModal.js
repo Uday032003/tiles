@@ -39,6 +39,14 @@ const QUICK_PRESETS = [
     surfaceRole: 'WALL',
   },
   {
+    label: 'Elevation Tiles',
+    workCode: 'ELEVATION_TILES',
+    name: 'Elevation Tiles',
+    inputMethod: 'DIMENSIONS',
+    outputUnit: 'SQ_FT',
+    surfaceRole: 'ELEVATION',
+  },
+  {
     label: 'Granite Platform (L-Shape)',
     workCode: 'KITCHEN_GRANITE_PLATFORM',
     name: 'Kitchen Granite Platform',

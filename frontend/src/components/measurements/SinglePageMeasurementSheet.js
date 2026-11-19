@@ -31,6 +31,7 @@ import LoadingSkeleton from '../common/LoadingSkeleton.js';
 const QUICK_WORK_CODES = [
   'FLOOR_TILES',
   'WALL_TILES',
+  'ELEVATION_TILES',
   'PARKING_TILES',
   'KITCHEN_GRANITE_PLATFORM',
   'SKIRTING',
@@ -46,6 +47,7 @@ const STANDARD_ROOM_PRESETS = [
   'Kitchen',
   'Parking',
   'Balcony',
+  'Elevation',
   'Pooja Room',
   'Dining',
   'Outside Bathroom',
@@ -63,6 +65,9 @@ const STANDARD_ROOM_DEFAULTS = {
   'children bathroom': { length: 5, width: 7 },
   parking: { length: 12, width: 16 },
   balcony: { length: 5, width: 10 },
+  elevation: { length: 10, width: 15 },
+  'front elevation': { length: 10, width: 15 },
+  'elevation tiles': { length: 10, width: 15 },
   'pooja room': { length: 6, width: 6 },
   dining: { length: 10, width: 10 },
   'outside bathroom': { length: 4, width: 5 },
@@ -90,6 +95,14 @@ function resolveWorkType(surfaceKey, workTypes = []) {
     return (
       workTypes.find((w) => w.code === 'WALL_TILES') ||
       workTypes.find((w) => w.name?.toLowerCase()?.includes('wall')) ||
+      workTypes[0]
+    );
+  }
+  if (surfaceKey === 'ELEVATION_TILES' || surfaceKey === 'ELEVATION') {
+    return (
+      workTypes.find((w) => w.code === 'ELEVATION' || w.code === 'ELEVATION_TILES') ||
+      workTypes.find((w) => w.name?.toLowerCase()?.includes('elevation')) ||
+      workTypes.find((w) => w.code === 'WALL_TILES') ||
       workTypes[0]
     );
   }
@@ -143,9 +156,11 @@ function getRoomDisplayData(room) {
     return {
       hasFloor: false,
       hasWall: false,
+      hasElevation: false,
       hasStaircase: false,
       floorMeas: null,
       wallMeas: null,
+      elevationMeas: null,
       widthRaw: '',
       lengthRaw: '',
       widthFormatted: '-',
@@ -154,6 +169,8 @@ function getRoomDisplayData(room) {
       floorLengthFormatted: '',
       wallWidthFormatted: '',
       wallLengthFormatted: '',
+      elevationWidthFormatted: '',
+      elevationLengthFormatted: '',
       area: 0,
       totalArea: 0,
     };
@@ -161,6 +178,9 @@ function getRoomDisplayData(room) {
   const meas = room.measurements || [];
   const floorMeasList = meas.filter((m) => m.surfaceRole === 'FLOOR' || m.workTypeCode === 'FLOOR_TILES');
   const wallMeasList = meas.filter((m) => m.surfaceRole === 'WALL' || m.workTypeCode === 'WALL_TILES');
+  const elevationMeasList = meas.filter(
+    (m) => m.surfaceRole === 'ELEVATION' || m.workTypeCode === 'ELEVATION_TILES' || m.workTypeCode === 'ELEVATION'
+  );
   const stairMeasList = meas.filter(
     (m) => m.surfaceRole === 'STAIRCASE' || m.workTypeCode === 'GRANITE_STAIRCASE' || m.isStaircase
   );
@@ -168,31 +188,51 @@ function getRoomDisplayData(room) {
     (m) =>
       m.surfaceRole !== 'FLOOR' &&
       m.surfaceRole !== 'WALL' &&
+      m.surfaceRole !== 'ELEVATION' &&
       m.surfaceRole !== 'STAIRCASE' &&
       m.workTypeCode !== 'FLOOR_TILES' &&
       m.workTypeCode !== 'WALL_TILES' &&
+      m.workTypeCode !== 'ELEVATION_TILES' &&
+      m.workTypeCode !== 'ELEVATION' &&
       m.workTypeCode !== 'GRANITE_STAIRCASE' &&
       !m.isStaircase
   );
 
   const floorMeas = floorMeasList[0] || null;
   const wallMeas = wallMeasList[0] || null;
+  const elevationMeas = elevationMeasList[0] || null;
   const stairMeas = stairMeasList[0] || null;
   const isStaircaseRoom = Boolean(stairMeas) || room.name?.toLowerCase().includes('stair');
+  const isElevationRoom = Boolean(elevationMeas) || room.name?.toLowerCase().includes('elevation');
   const defaults = STANDARD_ROOM_DEFAULTS[room.name?.toLowerCase()?.trim()] || null;
 
-  let fallbackWidth = floorMeas?.widthRaw || floorMeas?.heightRaw || floorMeas?.widthFt || floorMeas?.heightFt;
-  let fallbackLength = floorMeas?.lengthRaw || floorMeas?.lengthFt;
+  let fallbackWidth =
+    floorMeas?.widthRaw ||
+    floorMeas?.heightRaw ||
+    floorMeas?.widthFt ||
+    floorMeas?.heightFt ||
+    elevationMeas?.widthRaw ||
+    elevationMeas?.widthFt ||
+    wallMeas?.widthRaw;
+  let fallbackLength =
+    floorMeas?.lengthRaw ||
+    floorMeas?.lengthFt ||
+    elevationMeas?.lengthRaw ||
+    elevationMeas?.lengthFt ||
+    wallMeas?.lengthRaw;
   if (!fallbackWidth && defaults?.width) fallbackWidth = defaults.width;
   if (!fallbackLength && defaults?.length) fallbackLength = defaults.length;
   if (!fallbackWidth && isStaircaseRoom) fallbackWidth = '3.5';
   if (!fallbackLength && isStaircaseRoom) fallbackLength = '10';
 
-  const floorWidth = floorMeas?.widthRaw || floorMeas?.heightRaw || floorMeas?.widthFt || (floorMeas ? '' : fallbackWidth);
-  const floorLength = floorMeas?.lengthRaw || floorMeas?.lengthFt || (floorMeas ? '' : fallbackLength);
+  const floorWidth = floorMeas?.widthRaw || floorMeas?.heightRaw || floorMeas?.widthFt || (floorMeas ? '' : !wallMeas && !elevationMeas ? fallbackWidth : '');
+  const floorLength = floorMeas?.lengthRaw || floorMeas?.lengthFt || (floorMeas ? '' : !wallMeas && !elevationMeas ? fallbackLength : '');
 
   const wallWidth = wallMeas?.widthRaw || wallMeas?.heightRaw || wallMeas?.widthFt || '';
   const wallLength = wallMeas?.lengthRaw || wallMeas?.lengthFt || '';
+
+  const elevationWidth = elevationMeas?.widthRaw || elevationMeas?.heightRaw || elevationMeas?.widthFt || (isElevationRoom ? fallbackWidth : '');
+  const elevationLength = elevationMeas?.lengthRaw || elevationMeas?.lengthFt || (isElevationRoom ? fallbackLength : '');
 
   const stairWidth = stairMeas?.widthRaw || (isStaircaseRoom ? fallbackWidth : '');
   const stairLength = stairMeas?.lengthRaw || (isStaircaseRoom ? fallbackLength : '');
@@ -201,31 +241,37 @@ function getRoomDisplayData(room) {
     floorMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0) || Number(room.floorTileArea || 0);
   const wallArea =
     wallMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0) || Number(room.wallTileArea || 0);
+  const elevationArea =
+    elevationMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0) || Number(room.elevationTileArea || 0);
   const stairArea =
     stairMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0) || Number(room.staircaseArea || 0);
   const otherArea = otherMeasList.reduce((acc, m) => acc + Number(m.netArea || 0), 0);
 
-  let totalArea = Math.round(floorArea + wallArea + stairArea + otherArea || Number(room.totalMeasuredArea || 0));
+  let totalArea = Math.round(floorArea + wallArea + elevationArea + stairArea + otherArea || Number(room.totalMeasuredArea || 0));
   if (totalArea <= 0 && isStaircaseRoom && stairWidth && stairLength) {
     totalArea = Math.round(Number(stairWidth) * Number(stairLength) * 1.5);
   } else if (totalArea <= 0 && fallbackWidth && fallbackLength && !isNaN(Number(fallbackWidth)) && !isNaN(Number(fallbackLength))) {
     totalArea = Math.round(Number(fallbackWidth) * Number(fallbackLength));
-  } else if (totalArea <= 0 && (floorMeas?.netArea || wallMeas?.netArea || stairMeas?.netArea)) {
-    totalArea = Math.round(Number(floorMeas?.netArea || wallMeas?.netArea || stairMeas?.netArea || 0));
+  } else if (totalArea <= 0 && (floorMeas?.netArea || wallMeas?.netArea || elevationMeas?.netArea || stairMeas?.netArea)) {
+    totalArea = Math.round(Number(floorMeas?.netArea || wallMeas?.netArea || elevationMeas?.netArea || stairMeas?.netArea || 0));
   }
 
-  const hasFloor = Boolean(floorMeas) || (!wallMeas && !isStaircaseRoom && Boolean(fallbackWidth && fallbackLength));
+  const hasFloor = Boolean(floorMeas) || (!wallMeas && !elevationMeas && !isStaircaseRoom && Boolean(fallbackWidth && fallbackLength));
   const hasWall = Boolean(wallMeas);
+  const hasElevation = Boolean(elevationMeas) || (isElevationRoom && Boolean(elevationWidth && elevationLength));
   const hasStair = isStaircaseRoom;
 
   return {
     hasFloor,
     hasWall,
+    hasElevation,
     hasStair,
     floorWidthFormatted: formatDimensionDisplay(floorWidth),
     floorLengthFormatted: formatDimensionDisplay(floorLength),
     wallWidthFormatted: formatDimensionDisplay(wallWidth),
     wallLengthFormatted: formatDimensionDisplay(wallLength),
+    elevationWidthFormatted: formatDimensionDisplay(elevationWidth),
+    elevationLengthFormatted: formatDimensionDisplay(elevationLength),
     stairWidthFormatted: formatDimensionDisplay(stairWidth),
     stairLengthFormatted: String(stairLength),
     widthFormatted: formatDimensionDisplay(fallbackWidth),
@@ -236,15 +282,18 @@ function getRoomDisplayData(room) {
     totalArea,
     floorArea: Math.round(floorArea),
     wallArea: Math.round(wallArea),
+    elevationArea: Math.round(elevationArea),
     stairArea: Math.round(stairArea),
     otherArea: Math.round(otherArea),
     measurementCount: meas.length,
     meas,
     floorMeas,
     wallMeas,
+    elevationMeas,
     stairMeas,
     floorMeasList,
     wallMeasList,
+    elevationMeasList,
     stairMeasList,
     otherMeasList,
   };
@@ -557,6 +606,9 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
       setNewRoomWidth(String(def.width));
       setNewRoomLength(String(def.length));
     }
+    if (presetName.toLowerCase().includes('elevation')) {
+      setNewRoomSurface('ELEVATION_TILES');
+    }
   };
 
   const newRoomPreviewArea = useMemo(() => {
@@ -593,15 +645,24 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
         }
 
         const wt = resolveWorkType(newRoomSurface, availableWorkTypes);
-        const role = newRoomSurface === 'WALL_TILES' ? 'WALL' : newRoomSurface === 'CUSTOM' ? 'OTHER' : 'FLOOR';
+        const role =
+          newRoomSurface === 'WALL_TILES'
+            ? 'WALL'
+            : newRoomSurface === 'ELEVATION_TILES'
+              ? 'ELEVATION'
+              : newRoomSurface === 'CUSTOM'
+                ? 'OTHER'
+                : 'FLOOR';
         const surfaceLabel =
           newRoomSurface === 'CUSTOM' && newRoomCustomName.trim()
             ? newRoomCustomName.trim()
             : newRoomSurface === 'WALL_TILES'
               ? 'Wall Tiles'
-              : newRoomSurface === 'CUSTOM'
-                ? 'Custom Work'
-                : 'Floor Tiles';
+              : newRoomSurface === 'ELEVATION_TILES'
+                ? 'Elevation Tiles'
+                : newRoomSurface === 'CUSTOM'
+                  ? 'Custom Work'
+                  : 'Floor Tiles';
 
         initialMeasurement = {
           workTypeId: wt?.id,
@@ -657,6 +718,8 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     let currentSurface = 'FLOOR_TILES';
     if (floorMeas?.surfaceRole === 'WALL' || floorMeas?.workTypeCode === 'WALL_TILES') {
       currentSurface = 'WALL_TILES';
+    } else if (floorMeas?.surfaceRole === 'ELEVATION' || floorMeas?.workTypeCode === 'ELEVATION_TILES' || floorMeas?.workTypeCode === 'ELEVATION') {
+      currentSurface = 'ELEVATION_TILES';
     } else if (floorMeas?.surfaceRole === 'OTHER' || floorMeas?.workTypeCode === 'CUSTOM_WORK') {
       currentSurface = 'CUSTOM';
     }
@@ -674,6 +737,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     const measList = selectedRoom.measurements || [];
     const targetMeas = measList.find((m) => {
       if (surfaceKey === 'WALL_TILES') return m.surfaceRole === 'WALL' || m.workTypeCode === 'WALL_TILES';
+      if (surfaceKey === 'ELEVATION_TILES') return m.surfaceRole === 'ELEVATION' || m.workTypeCode === 'ELEVATION_TILES' || m.workTypeCode === 'ELEVATION';
       if (surfaceKey === 'CUSTOM') return m.surfaceRole === 'OTHER' || m.workTypeCode === 'CUSTOM_WORK';
       return m.surfaceRole === 'FLOOR' || m.workTypeCode === 'FLOOR_TILES';
     });
@@ -721,15 +785,24 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     setIsSavingRoom(true);
     const { floorMeas } = getRoomDisplayData(selectedRoom);
     const wt = selectedEditWorkType;
-    const role = editSurface === 'WALL_TILES' ? 'WALL' : editSurface === 'CUSTOM' ? 'OTHER' : 'FLOOR';
+    const role =
+      editSurface === 'WALL_TILES'
+        ? 'WALL'
+        : editSurface === 'ELEVATION_TILES'
+          ? 'ELEVATION'
+          : editSurface === 'CUSTOM'
+            ? 'OTHER'
+            : 'FLOOR';
     const surfaceLabel =
       editSurface === 'CUSTOM' && editCustomName.trim()
         ? editCustomName.trim()
         : editSurface === 'WALL_TILES'
           ? 'Wall Tiles'
-          : editSurface === 'CUSTOM'
-            ? 'Custom Work'
-            : 'Floor Tiles';
+          : editSurface === 'ELEVATION_TILES'
+            ? 'Elevation Tiles'
+            : editSurface === 'CUSTOM'
+              ? 'Custom Work'
+              : 'Floor Tiles';
 
     const payload = {
       workTypeId: wt?.id,
@@ -754,6 +827,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
 
       const existingMeasForSurface = (selectedRoom.measurements || []).find((m) => {
         if (editSurface === 'WALL_TILES') return m.surfaceRole === 'WALL' || m.workTypeCode === 'WALL_TILES';
+        if (editSurface === 'ELEVATION_TILES') return m.surfaceRole === 'ELEVATION' || m.workTypeCode === 'ELEVATION_TILES' || m.workTypeCode === 'ELEVATION';
         if (editSurface === 'CUSTOM') return m.surfaceRole === 'OTHER' || m.workTypeCode === 'CUSTOM_WORK';
         return m.surfaceRole === 'FLOOR' || m.workTypeCode === 'FLOOR_TILES';
       });
@@ -1106,7 +1180,14 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                       </div>
                     )}
 
-                    {!hasFloor && !hasWall && (
+                    {hasElevation && (
+                      <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                        Elevation: Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{elevationWidthFormatted || widthFormatted}</strong> • Length:{' '}
+                        <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{elevationLengthFormatted || lengthFormatted}</strong>
+                      </div>
+                    )}
+
+                    {!hasFloor && !hasWall && !hasElevation && (
                       <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
                         Floor: Width: <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{widthFormatted}</strong> • Length:{' '}
                         <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{lengthFormatted}</strong>
@@ -1361,7 +1442,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
               </div>
             </div>
 
-            {/* Surface or Work Type Selection (strictly Floor Tiles, Wall Tiles, Custom) */}
+            {/* Surface or Work Type Selection (Floor Tiles, Wall Tiles, Elevation, Custom) */}
             <div className="form-group" style={{ marginBottom: '0.85rem' }}>
               <label className="form-label" style={{ fontSize: '0.78rem', marginBottom: '0.4rem' }}>
                 Surface or Work Type
@@ -1370,6 +1451,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                 {[
                   { key: 'FLOOR_TILES', label: 'Floor Tiles' },
                   { key: 'WALL_TILES', label: 'Wall Tiles' },
+                  { key: 'ELEVATION_TILES', label: 'Elevation' },
                   { key: 'CUSTOM', label: 'Custom' },
                 ].map((st) => {
                   const isSelected = editSurface === st.key;
@@ -1818,7 +1900,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
               </div>
             </div>
 
-            {/* Surface or Work Type Selection (strictly Floor Tiles, Wall Tiles, Custom) */}
+            {/* Surface or Work Type Selection (Floor Tiles, Wall Tiles, Elevation, Custom) */}
             <div className="form-group" style={{ marginBottom: '0.85rem' }}>
               <label className="form-label" style={{ fontSize: '0.78rem', marginBottom: '0.4rem' }}>
                 Surface or Work Type
@@ -1827,6 +1909,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                 {[
                   { key: 'FLOOR_TILES', label: 'Floor Tiles' },
                   { key: 'WALL_TILES', label: 'Wall Tiles' },
+                  { key: 'ELEVATION_TILES', label: 'Elevation' },
                   { key: 'CUSTOM', label: 'Custom' },
                 ].map((st) => {
                   const isSelected = newRoomSurface === st.key;
