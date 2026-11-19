@@ -335,24 +335,21 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     );
   }, [activeFloor]);
 
-  // Active floor staircases (kept completely separate from rooms)
-  const activeFloorStaircases = useMemo(() => {
-    return allStaircases.filter((s) => s.floorId === activeFloorId);
-  }, [allStaircases, activeFloorId]);
+  // Single staircase for the entire building (shared across all floors)
+  const buildingStaircase = useMemo(() => {
+    return allStaircases.length > 0 ? allStaircases[0] : null;
+  }, [allStaircases]);
 
-  const activeFloorStaircaseTotalArea = useMemo(() => {
-    return activeFloorStaircases.reduce((acc, s) => {
-      const steps = s.treadCount || s.stepCount || 10;
-      return acc + Math.round(Number(s.totalAreaSqft || steps * 5.25));
-    }, 0);
-  }, [activeFloorStaircases]);
+  const buildingStaircaseSteps = useMemo(() => {
+    if (!buildingStaircase) return 0;
+    return Number(buildingStaircase.treadCount || buildingStaircase.stepCount || 0);
+  }, [buildingStaircase]);
 
-  // Total steps on active floor for Staircase(count) button
-  const activeFloorTotalSteps = useMemo(() => {
-    return activeFloorStaircases.reduce((sum, s) => {
-      return sum + Number(s.treadCount || s.stepCount || 0);
-    }, 0);
-  }, [activeFloorStaircases]);
+  const buildingStaircaseArea = useMemo(() => {
+    if (!buildingStaircase) return 0;
+    const steps = buildingStaircase.treadCount || buildingStaircase.stepCount || 10;
+    return Math.round(Number(buildingStaircase.totalAreaSqft || steps * 5.25));
+  }, [buildingStaircase]);
 
   // Total area for rooms only
   const activeFloorRoomsArea = useMemo(() => {
@@ -362,23 +359,19 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     }, 0);
   }, [activeFloorRooms]);
 
-  // Total area for active floor overview (Rooms + Staircases)
+  // Total area for active floor overview (Rooms only)
   const activeFloorTotalArea = useMemo(() => {
-    return activeFloorRoomsArea + activeFloorStaircaseTotalArea;
-  }, [activeFloorRoomsArea, activeFloorStaircaseTotalArea]);
+    return activeFloorRoomsArea;
+  }, [activeFloorRoomsArea]);
 
-  // Total building measured area
+  // Total building measured area (Floors + Single Building Staircase)
   const totalBuildingMeasuredArea = useMemo(() => {
     const floorsArea = floors.reduce(
       (acc, f) => acc + Number(f.totalMeasuredArea || 0),
       0
     );
-    const stairsArea = allStaircases.reduce(
-      (acc, s) => acc + Number(s.totalAreaSqft || (s.treadCount || 10) * 5.25),
-      0
-    );
-    return Math.round(floorsArea + stairsArea);
-  }, [floors, allStaircases]);
+    return Math.round(floorsArea + buildingStaircaseArea);
+  }, [floors, buildingStaircaseArea]);
 
   // Invalidate queries helper (awaits refetches so loading indicators stay active until UI is updated)
   const invalidateAll = async () => {
@@ -530,7 +523,13 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
 
   const deleteStaircaseMutation = useMutation({
     mutationFn: async (id) => {
-      await staircaseService.remove(id);
+      for (const sc of allStaircases) {
+        try {
+          await staircaseService.remove(sc.id);
+        } catch (e) {
+          console.warn('Delete staircase error:', e);
+        }
+      }
       await invalidateAll();
     },
     onSuccess: () => {
@@ -777,16 +776,29 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
     }
   };
 
-  // Handle Save Staircase Measurement (Tracked and displayed separately from rooms)
+  // Handle Save Staircase Measurement (Single shared staircase for all floors)
   const handleSaveStaircase = async (payload) => {
-    const floorId = payload.floorId || activeFloorId || floors[0]?.id;
-    const targetFloor = floors.find((f) => f.id === floorId) || activeFloor || floors[0];
-    if (!targetFloor) {
+    const targetFloor = floors[0] || activeFloor;
+    if (!targetFloor && !payload.id && !buildingStaircase) {
       throw new Error('Please add a floor level first.');
     }
 
-    if (payload.id) {
-      await staircaseService.update(payload.id, payload);
+    const existingStaircase = payload.id
+      ? allStaircases.find((s) => s.id === payload.id)
+      : (buildingStaircase || allStaircases[0]);
+
+    if (existingStaircase) {
+      await staircaseService.update(existingStaircase.id, payload);
+      // Clean up any extra duplicate staircases from previous testing
+      if (allStaircases.length > 1) {
+        for (const extra of allStaircases.slice(1)) {
+          try {
+            await staircaseService.remove(extra.id);
+          } catch (e) {
+            console.warn('Cleanup extra staircase:', e);
+          }
+        }
+      }
       showToast('Staircase updated.', 'success');
     } else {
       let staircaseRoom = (targetFloor.rooms || []).find((r) =>
@@ -820,6 +832,7 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
         building: building || tree.building,
         floors,
         totalArea: totalBuildingMeasuredArea,
+        staircase: buildingStaircase,
         showToast,
       });
     } catch (err) {
@@ -951,20 +964,16 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
                 fontSize: '0.76rem',
                 minHeight: 28,
                 padding: '0.2rem 0.55rem',
-                color: activeFloorTotalSteps > 0 ? 'var(--primary)' : 'inherit',
-                fontWeight: activeFloorTotalSteps > 0 ? 600 : 400,
+                color: buildingStaircaseSteps > 0 ? 'var(--primary)' : 'inherit',
+                fontWeight: buildingStaircaseSteps > 0 ? 600 : 400,
               }}
               onClick={() => {
-                if (activeFloorStaircases.length > 0) {
-                  setEditingStaircase(activeFloorStaircases[0]);
-                } else {
-                  setEditingStaircase(null);
-                }
+                setEditingStaircase(buildingStaircase);
                 setStaircaseOpen(true);
               }}
-              title="Staircase Step Count"
+              title="Staircase Step Count (All Floors)"
             >
-              <Ruler size={13} /> Staircase ({activeFloorTotalSteps})
+              <Ruler size={13} /> Staircase ({buildingStaircaseSteps})
             </button>
 
             <button
@@ -1938,8 +1947,6 @@ export default function SinglePageMeasurementSheet({ buildingId, building, workT
           setDeletingStaircase(sc || editingStaircase);
         }}
         initialData={editingStaircase}
-        floors={floors}
-        activeFloorId={activeFloorId}
       />
 
       {/* 8. Delete Floor Confirmation */}

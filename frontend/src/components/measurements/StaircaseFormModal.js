@@ -8,14 +8,11 @@ export default function StaircaseFormModal({
   onSubmit,
   onDelete = null,
   initialData = null,
-  floors = [],
-  activeFloorId = null,
 }) {
   const isEditing = Boolean(initialData);
   const [serverError, setServerError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const [selectedFloorId, setSelectedFloorId] = useState('');
   const [name, setName] = useState('Main Staircase');
   const [stepCount, setStepCount] = useState('15');
 
@@ -24,12 +21,6 @@ export default function StaircaseFormModal({
     setServerError('');
     setIsSaving(false);
 
-    if (activeFloorId) {
-      setSelectedFloorId(activeFloorId);
-    } else if (floors && floors.length > 0) {
-      setSelectedFloorId(floors[0].id);
-    }
-
     if (initialData) {
       setName(initialData.name || 'Main Staircase');
       setStepCount(String(initialData.treadCount || initialData.stepCount || 15));
@@ -37,11 +28,9 @@ export default function StaircaseFormModal({
       setName('Main Staircase');
       setStepCount('15');
     }
-  }, [isOpen, initialData, activeFloorId, floors]);
+  }, [isOpen, initialData]);
 
   const countNum = Math.max(0, parseInt(stepCount, 10) || 0);
-  // Standard step area: 3.5 ft width * (1.0 ft tread + 0.5 ft riser) = 5.25 sq ft per step
-  const calculatedArea = Math.round(countNum * 3.5 * 1.5 * 10) / 10;
 
   const handleStepDelta = (delta) => {
     setStepCount((prev) => String(Math.max(1, (parseInt(prev, 10) || 0) + delta)));
@@ -69,7 +58,7 @@ export default function StaircaseFormModal({
       if (onSubmit) {
         await onSubmit({
           id: initialData?.id || null,
-          floorId: selectedFloorId || null,
+          floorId: initialData?.floorId || null,
           name: name.trim(),
           isUniformSteps: true,
           stepCount: countNum,
@@ -108,26 +97,6 @@ export default function StaircaseFormModal({
       )}
 
       <form onSubmit={handleSubmit} noValidate>
-        {floors && floors.length > 1 && (
-          <div className="form-group" style={{ marginBottom: '0.85rem' }}>
-            <label className="form-label" htmlFor="stair-floor">
-              Target Floor
-            </label>
-            <select
-              id="stair-floor"
-              className="form-select"
-              value={selectedFloorId}
-              onChange={(e) => setSelectedFloorId(e.target.value)}
-            >
-              {floors.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
         <div className="form-group" style={{ marginBottom: '0.85rem' }}>
           <label className="form-label" htmlFor="stair-name">
             Staircase Name
@@ -143,7 +112,7 @@ export default function StaircaseFormModal({
         </div>
 
         {/* Step Count Only with Stepper Buttons */}
-        <div className="form-group" style={{ marginBottom: '1rem' }}>
+        <div className="form-group" style={{ marginBottom: '1.25rem' }}>
           <label className="form-label" style={{ marginBottom: '0.35rem' }}>
             Step Count (Number of Steps)
           </label>
@@ -226,29 +195,6 @@ export default function StaircaseFormModal({
             </button>
           </div>
         </div>
-
-        {/* Live Area Preview Banner */}
-        {countNum > 0 && (
-          <div
-            style={{
-              background: 'rgba(20, 184, 166, 0.12)',
-              border: '1px solid rgba(20, 184, 166, 0.35)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '0.6rem 0.85rem',
-              marginBottom: '1.25rem',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
-              Calculated Area ({countNum} steps):
-            </span>
-            <span style={{ fontSize: '0.96rem', fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
-              {calculatedArea} sq ft
-            </span>
-          </div>
-        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>

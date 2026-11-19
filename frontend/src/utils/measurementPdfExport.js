@@ -1,29 +1,63 @@
 import { jsPDF } from 'jspdf';
 import { formatArea, getOutputUnitLabel } from './formatters.js';
 
+const STANDARD_ROOM_DEFAULTS = {
+  hall: { length: 10, width: 10 },
+  kitchen: { length: 10, width: 12 },
+  'master bedroom': { length: 10, width: 12 },
+  'master bathroom': { length: 5, width: 8 },
+  'children bedroom': { length: 10, width: 12 },
+  'children bathroom': { length: 5, width: 7 },
+  parking: { length: 12, width: 16 },
+  balcony: { length: 5, width: 10 },
+  elevation: { length: 10, width: 15 },
+  'front elevation': { length: 10, width: 15 },
+  'elevation tiles': { length: 10, width: 15 },
+  'pooja room': { length: 6, width: 6 },
+  dining: { length: 10, width: 10 },
+  'outside bathroom': { length: 4, width: 5 },
+  terrace: { length: 15, width: 20 },
+};
+
 export function formatMeasurementDimensionsForExport(m) {
   if (!m) return '-';
-  if (m.staircase) {
-    const s = m.staircase;
-    return `${s.stepsCount || 0} steps (${s.stepTread || ''}" T x ${s.stepRiser || ''}" R x ${s.stepWidth || ''}" W)`;
+  if (m.isStaircase || m.staircase || m.surfaceRole === 'STAIRCASE' || m.workTypeCode === 'GRANITE_STAIRCASE') {
+    const s = m.staircase || m;
+    const steps = s.treadCount ?? s.tread_count ?? s.stepCount ?? s.stepsCount ?? m.lengthRaw ?? 0;
+    return `${steps} steps`;
   }
   if (m.segments && m.segments.length > 0) {
     return m.segments
-      .map((seg) => `${seg.length ?? ''} x ${seg.width ?? ''}`)
+      .map((seg) => {
+        const l = seg.lengthRaw ?? (seg.lengthFt != null ? seg.lengthFt : '') ?? seg.length ?? '';
+        const w = seg.widthRaw ?? (seg.widthFt != null ? seg.widthFt : '') ?? seg.width ?? '';
+        return l && w ? `${l} x ${w} ft` : l || w || '';
+      })
       .filter(Boolean)
       .join(', ');
   }
-  if (m.length && m.width) {
-    const qtyStr = Number(m.quantity || 1) > 1 ? ` x ${m.quantity}` : '';
-    return `${m.length} x ${m.width}${qtyStr}`;
+
+  const rawLen = m.lengthRaw ?? (m.lengthFt !== null && m.lengthFt !== undefined ? m.lengthFt : '') ?? m.length ?? '';
+  const rawWid = m.widthRaw ?? (m.widthFt !== null && m.widthFt !== undefined ? m.widthFt : '') ?? m.width ?? '';
+  const qty = Number(m.quantity || 1);
+  const qtyStr = qty > 1 ? ` (qty ${qty})` : '';
+
+  const lenStr = String(rawLen).trim();
+  const widStr = String(rawWid).trim();
+
+  if (lenStr && widStr) {
+    return `${lenStr} x ${widStr} ft${qtyStr}`;
   }
-  if (m.length) {
-    return `${m.length} R.ft`;
+  if (lenStr) {
+    return `${lenStr} ft${qtyStr}`;
+  }
+  if (widStr) {
+    return `${widStr} ft${qtyStr}`;
   }
   return '-';
 }
 
-export function generateMeasurementPdf({ building, floors = [], totalArea = 0 }) {
+export function generateMeasurementPdf({ building, floors = [], totalArea = 0, staircase = null }) {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'pt',
@@ -136,12 +170,47 @@ export function generateMeasurementPdf({ building, floors = [], totalArea = 0 })
 
     y += 28;
 
-    const floorMeasurements = (floor.rooms || []).flatMap((r) =>
-      (r.measurements || []).map((m) => ({
-        ...m,
-        roomName: r.name,
-      }))
-    );
+    // Collect measurements for this floor, resolving dimensions cleanly
+    const floorMeasurements = (floor.rooms || [])
+      .filter((r) => !r.name?.toLowerCase().includes('stair'))
+      .flatMap((r) => {
+        const rMeas = (r.measurements || []).filter(
+          (m) => !m.isStaircase && m.surfaceRole !== 'STAIRCASE' && m.workTypeCode !== 'GRANITE_STAIRCASE'
+        );
+
+        if (rMeas.length > 0) {
+          return rMeas.map((m) => {
+            const def = STANDARD_ROOM_DEFAULTS[r.name?.toLowerCase()?.trim()];
+            const resolvedLen = m.lengthRaw || (m.lengthFt != null ? m.lengthFt : '') || m.length || def?.length || '';
+            const resolvedWid = m.widthRaw || (m.widthFt != null ? m.widthFt : '') || m.width || def?.width || '';
+            return {
+              ...m,
+              roomName: r.name,
+              lengthRaw: resolvedLen,
+              widthRaw: resolvedWid,
+            };
+          });
+        }
+
+        // Fallback for room created with default dimensions
+        const def = STANDARD_ROOM_DEFAULTS[r.name?.toLowerCase()?.trim()];
+        const w = r.widthRaw || r.width || def?.width || '';
+        const l = r.lengthRaw || r.length || def?.length || '';
+        const area = Number(r.totalMeasuredArea || (w && l ? Number(w) * Number(l) : 0));
+
+        return [
+          {
+            id: r.id,
+            roomName: r.name,
+            workTypeName: 'Floor Tiles',
+            surfaceRole: 'FLOOR',
+            outputUnit: 'SQ_FT',
+            lengthRaw: l ? String(l) : '',
+            widthRaw: w ? String(w) : '',
+            netArea: area,
+          },
+        ];
+      });
 
     if (floorMeasurements.length === 0) {
       doc.setTextColor(148, 163, 184);
@@ -201,6 +270,57 @@ export function generateMeasurementPdf({ building, floors = [], totalArea = 0 })
     y += 10;
   });
 
+  // Building Staircase Section (One same staircase for all floors)
+  const stairSteps = staircase ? Number(staircase.treadCount ?? staircase.stepCount ?? staircase.tread_count ?? 0) : 0;
+  if (stairSteps > 0) {
+    if (y > pageHeight - 90) {
+      doc.addPage();
+      y = 40;
+    }
+
+    doc.setFillColor(30, 41, 59); // slate-800
+    doc.roundedRect(margin, y, contentWidth, 24, 3, 3, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.text('STAIRCASE (All Floors)', margin + 10, y + 16);
+
+    const stairArea = Number(staircase.totalAreaSqft || stairSteps * 5.25).toFixed(2);
+    doc.setTextColor(20, 184, 166);
+    doc.text(`${stairSteps} Steps`, pageWidth - margin - 10, y + 16, { align: 'right' });
+
+    y += 28;
+
+    // Table Header Row
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, y, contentWidth, 18, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Item Description', margin + 10, y + 12);
+    doc.text('Step Count', margin + 260, y + 12);
+    doc.text('Area', pageWidth - margin - 10, y + 12, { align: 'right' });
+
+    y += 20;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text(staircase.name || 'Main Staircase', margin + 10, y + 10);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(`${stairSteps} steps`, margin + 260, y + 10);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${stairArea} sq ft`, pageWidth - margin - 10, y + 10, { align: 'right' });
+
+    y += 26;
+  }
+
   // Footer on each page
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
@@ -219,7 +339,7 @@ export function generateMeasurementPdf({ building, floors = [], totalArea = 0 })
   return doc;
 }
 
-export async function shareMeasurementsOnWhatsApp({ building, floors = [], totalArea = 0, showToast }) {
+export async function shareMeasurementsOnWhatsApp({ building, floors = [], totalArea = 0, staircase = null, showToast }) {
   // 1. Build formatted text summary
   let text = `*DM TILES - MEASUREMENT SUMMARY*\n`;
   text += `Building: *${building?.name || 'Building'}*`;
@@ -233,9 +353,38 @@ export async function shareMeasurementsOnWhatsApp({ building, floors = [], total
 
   floors.forEach((floor) => {
     text += `\n*${(floor.name || 'Floor').toUpperCase()}*\n`;
-    const measurements = (floor.rooms || []).flatMap((r) =>
-      (r.measurements || []).map((m) => ({ ...m, roomName: r.name }))
-    );
+    const measurements = (floor.rooms || [])
+      .filter((r) => !r.name?.toLowerCase().includes('stair'))
+      .flatMap((r) => {
+        const rMeas = (r.measurements || []).filter(
+          (m) => !m.isStaircase && m.surfaceRole !== 'STAIRCASE' && m.workTypeCode !== 'GRANITE_STAIRCASE'
+        );
+        if (rMeas.length > 0) {
+          return rMeas.map((m) => {
+            const def = STANDARD_ROOM_DEFAULTS[r.name?.toLowerCase()?.trim()];
+            return {
+              ...m,
+              roomName: r.name,
+              lengthRaw: m.lengthRaw || (m.lengthFt != null ? m.lengthFt : '') || m.length || def?.length || '',
+              widthRaw: m.widthRaw || (m.widthFt != null ? m.widthFt : '') || m.width || def?.width || '',
+            };
+          });
+        }
+        const def = STANDARD_ROOM_DEFAULTS[r.name?.toLowerCase()?.trim()];
+        const w = r.widthRaw || r.width || def?.width || '';
+        const l = r.lengthRaw || r.length || def?.length || '';
+        const area = Number(r.totalMeasuredArea || (w && l ? Number(w) * Number(l) : 0));
+        return [
+          {
+            roomName: r.name,
+            workTypeName: 'Floor Tiles',
+            lengthRaw: l ? String(l) : '',
+            widthRaw: w ? String(w) : '',
+            netArea: area,
+            outputUnit: 'SQ_FT',
+          },
+        ];
+      });
 
     if (measurements.length === 0) {
       text += `  (No measurements yet)\n`;
@@ -251,11 +400,18 @@ export async function shareMeasurementsOnWhatsApp({ building, floors = [], total
     text += `Subtotal: *${floorSubtotal} sq ft*\n`;
   });
 
+  const stairSteps = staircase ? Number(staircase.treadCount ?? staircase.stepCount ?? staircase.tread_count ?? 0) : 0;
+  if (stairSteps > 0) {
+    const stairArea = Number(staircase.totalAreaSqft || stairSteps * 5.25).toFixed(2);
+    text += `\n*STAIRCASE (All Floors)*\n`;
+    text += `• ${staircase.name || 'Main Staircase'}: ${stairSteps} steps = *${stairArea} sq ft*\n`;
+  }
+
   text += `---------------------------------\n`;
   text += `*TOTAL MEASURED: ${Number(totalArea || 0).toFixed(2)} SQ FT*\n`;
 
   // 2. Generate PDF document
-  const doc = generateMeasurementPdf({ building, floors, totalArea });
+  const doc = generateMeasurementPdf({ building, floors, totalArea, staircase });
   const rawName = (building?.name || 'Building').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
   const filename = `${rawName}_Measurements.pdf`;
 
@@ -297,4 +453,3 @@ export async function shareMeasurementsOnWhatsApp({ building, floors = [], total
 
   window.open(waUrl, '_blank');
 }
-
